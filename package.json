@@ -1,0 +1,29 @@
+{
+  "name": "subtitle-translator-monorepo",
+  "version": "1.0.0",
+  "description": "Monorepo for subtitle translation application with Angular frontend and Node.js backend",
+  "private": true,
+  "workspaces": [
+    "packages/frontend",
+    "packages/backend"
+  ],
+  "scripts": {
+    "install:all": "npm install && npm run install:frontend && npm run install:backend",
+    "install:frontend": "cd packages/frontend && npm install",
+    "install:backend": "cd packages/backend && npm install",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:frontend": "cd packages/frontend && npm start",
+    "dev:backend": "cd packages/backend && npm run dev",
+    "build": "npm run build:frontend && npm run build:backend",
+    "build:frontend": "cd packages/frontend && npm run build",
+    "build:backend": "cd packages/backend && npm run build",
+    "start": "cd packages/backend && npm start"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}

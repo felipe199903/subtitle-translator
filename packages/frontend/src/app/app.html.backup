@@ -1,0 +1,14 @@
+<div class="app-container">
+  <header class="app-header">
+    <h1>🎬 Tradutor de Legendas SRT</h1>
+    <p>Traduza suas legendas para português brasileiro de forma rápida e fácil</p>
+  </header>
+  
+  <main class="app-main">
+    <router-outlet></router-outlet>
+  </main>
+  
+  <footer class="app-footer">
+    <p>&copy; 2025 Tradutor de Legendas SRT</p>
+  </footer>
+</div>

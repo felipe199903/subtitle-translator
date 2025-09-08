@@ -1,0 +1,17 @@
+{
+  "subtitles": [
+    {
+      "index": 1,
+      "startTime": "00:00:01,000",
+      "endTime": "00:00:03,000",
+      "text": "Hello world"
+    },
+    {
+      "index": 2,
+      "startTime": "00:00:04,000",
+      "endTime": "00:00:06,000",
+      "text": "How are you today?"
+    }
+  ],
+  "targetLanguage": "pt-BR"
+}

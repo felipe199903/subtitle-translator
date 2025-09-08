@@ -1,0 +1,78 @@
+<div class="translation-container">
+  <div class="header">
+    <button (click)="goBack()" class="back-btn">
+      ← Voltar
+    </button>
+    <h1>Tradução de Legendas</h1>
+  </div>
+
+  <div class="file-info">
+    <h3>Arquivo: {{ fileName }}</h3>
+    <p>Idioma detectado: {{ getLanguageName(originalLanguage) }}</p>
+    <p>Total de legendas: {{ subtitles.length }}</p>
+  </div>
+
+  <div class="actions">
+    <button *ngIf="!translatedSrtContent && !isTranslating" 
+            (click)="translateSubtitles()"
+            class="translate-btn">
+      Traduzir para Português (BR)
+    </button>
+
+    <div *ngIf="isTranslating" class="loading">
+      <div class="spinner"></div>
+      <p>Traduzindo legendas...</p>
+    </div>
+
+    <div *ngIf="translatedSrtContent" class="download-section">
+      <button (click)="downloadTranslatedSRT()"
+              class="download-btn">
+        📥 Baixar SRT Traduzido
+      </button>
+      <p class="download-info">
+        Arquivo pronto para download com {{ subtitles.length }} legendas traduzidas
+      </p>
+    </div>
+  </div>
+
+  <div *ngIf="translationError" class="error-message">
+    {{ translationError }}
+  </div>
+
+  <div *ngIf="translationSuccess" class="success-message">
+    {{ translationSuccess }}
+  </div>
+
+  <div class="subtitles-preview">
+    <h3>Prévia das Legendas</h3>
+    <div class="subtitles-grid">
+      <div class="subtitle-column">
+        <h4>Original</h4>
+        <div class="subtitle-list">
+          <div *ngFor="let subtitle of subtitles; let i = index" 
+               class="subtitle-item">
+            <div class="subtitle-time">
+              {{ subtitle.startTime }} → {{ subtitle.endTime }}
+            </div>
+            <div class="subtitle-text">{{ subtitle.text }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div *ngIf="translatedSrtContent" class="subtitle-column">
+        <h4>Traduzido (PT-BR)</h4>
+        <div class="subtitle-list">
+          <div *ngFor="let subtitle of subtitles; let i = index" 
+               class="subtitle-item">
+            <div class="subtitle-time">
+              {{ subtitle.startTime }} → {{ subtitle.endTime }}
+            </div>
+            <div class="subtitle-text translated">
+              {{ subtitle.translatedText || subtitle.text }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

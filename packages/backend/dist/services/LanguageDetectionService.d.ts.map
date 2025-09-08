@@ -1,0 +1,1 @@
+{"version":3,"file":"LanguageDetectionService.d.ts","sourceRoot":"","sources":["../../src/services/LanguageDetectionService.ts"],"names":[],"mappings":"AAAA,qBAAa,wBAAwB;IACnC,OAAO,CAAC,kBAAkB,CAYxB;IAEI,cAAc,CAAC,IAAI,EAAE,MAAM,GAAG,OAAO,CAAC,MAAM,CAAC;IA4CnD,OAAO,CAAC,aAAa;IAKrB,qBAAqB,IAAI,MAAM,CAAC,MAAM,EAAE,MAAM,CAAC;IAI/C,eAAe,CAAC,IAAI,EAAE,MAAM,GAAG,MAAM;CAGtC"}

@@ -1,0 +1,52 @@
+<div class="upload-container">
+  <h1>Tradutor de Legendas SRT</h1>
+  <p>Envie seu arquivo .srt para traduzir para português brasileiro</p>
+  
+  <div class="upload-area" [class.dragover]="false">
+    <div class="upload-content">
+      <svg class="upload-icon" viewBox="0 0 24 24" width="48" height="48">
+        <path fill="currentColor" d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+      </svg>
+      
+      <h3>Selecione ou arraste seu arquivo .srt</h3>
+      <p>Máximo 10MB</p>
+      
+      <input type="file" 
+             #fileInput 
+             (change)="onFileSelected($event)"
+             accept=".srt"
+             class="file-input">
+      
+      <button type="button" 
+              class="select-file-btn"
+              (click)="fileInput.click()">
+        Selecionar Arquivo
+      </button>
+    </div>
+  </div>
+
+  <div *ngIf="selectedFile" class="file-info">
+    <h4>Arquivo selecionado:</h4>
+    <p>{{ selectedFile.name }}</p>
+    <p>Tamanho: {{ (selectedFile.size / 1024 / 1024).toFixed(2) }} MB</p>
+  </div>
+
+  <div *ngIf="uploadError" class="error-message">
+    {{ uploadError }}
+  </div>
+
+  <div *ngIf="uploadSuccess" class="success-message">
+    {{ uploadSuccess }}
+  </div>
+
+  <button *ngIf="selectedFile && !isUploading" 
+          (click)="onUpload()"
+          class="upload-btn">
+    Enviar e Processar
+  </button>
+
+  <div *ngIf="isUploading" class="loading">
+    <div class="spinner"></div>
+    <p>Processando arquivo...</p>
+  </div>
+</div>
