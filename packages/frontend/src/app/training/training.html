@@ -1,0 +1,235 @@
+<div class="training-container">
+  <div class="header">
+    <button (click)="goBack()" class="back-btn">
+      ← Voltar
+    </button>
+    <h1>🎓 Modo Treino - Melhoria do Tradutor</h1>
+    <p>Envie múltiplos arquivos .srt para treinar e melhorar nosso sistema de tradução</p>
+  </div>
+
+  <!-- File Selection Section -->
+  <div class="section" *ngIf="!currentSession">
+    <h2>📁 Seleção de Arquivos</h2>
+    <div class="file-input-area">
+      <input type="file" 
+             #fileInput
+             multiple 
+             accept=".srt"
+             (change)="onFilesSelected($event)"
+             class="file-input">
+      <button (click)="fileInput.click()" class="file-select-btn">
+        Selecionar Arquivos .srt
+      </button>
+    </div>
+
+    <div class="file-info" *ngIf="selectedFiles.length > 0">
+      <h3>Arquivos Selecionados ({{ selectedFiles.length }})</h3>
+      <div class="file-list">
+        <div *ngFor="let file of selectedFiles; let i = index" class="file-item">
+          <span class="file-name">{{ file.name }}</span>
+          <span class="file-size">({{ (file.size / 1024).toFixed(1) }} KB)</span>
+          <button (click)="removeFile(i)" class="remove-btn">✖</button>
+        </div>
+      </div>
+      
+      <div class="file-actions">
+        <button (click)="clearFiles()" class="clear-btn">Limpar Tudo</button>
+        <button (click)="startTraining()" 
+                [disabled]="isUploading || selectedFiles.length === 0"
+                class="start-btn">
+          <span *ngIf="!isUploading">🚀 Iniciar Treino</span>
+          <span *ngIf="isUploading">⏳ Enviando...</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Training Progress Section -->
+  <div class="section" *ngIf="currentSession">
+    <h2>📊 Progresso do Treino</h2>
+    
+    <div class="progress-card">
+      <div class="progress-header">
+        <h3>Sessão: {{ currentSession.sessionId }}</h3>
+        <span class="status-badge" [style.background-color]="getStatusColor()">
+          {{ currentSession.status | titlecase }}
+        </span>
+      </div>
+
+      <div class="progress-bar-container">
+        <div class="progress-bar" [style.width.%]="getProgressPercentage()"></div>
+      </div>
+      
+      <div class="progress-stats">
+        <div class="stat">
+          <span class="stat-label">Arquivos:</span>
+          <span class="stat-value">{{ currentSession.processedFiles }}/{{ currentSession.totalFiles }}</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Progresso:</span>
+          <span class="stat-value">{{ getProgressPercentage().toFixed(1) }}%</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Tempo:</span>
+          <span class="stat-value">{{ formatDuration(currentSession.duration) }}</span>
+        </div>
+      </div>
+
+      <div class="detailed-stats" *ngIf="currentSession.status === 'completed'">
+        <h4>Estatísticas Detalhadas</h4>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-number">{{ currentSession.totalSubtitles }}</div>
+            <div class="stat-label">Total de Legendas</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">{{ currentSession.totalTranslated }}</div>
+            <div class="stat-label">Traduzidas</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">{{ currentSession.totalUniquePhrases }}</div>
+            <div class="stat-label">Frases Únicas</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-number">{{ ((currentSession.totalTranslated / currentSession.totalSubtitles) * 100).toFixed(1) }}%</div>
+            <div class="stat-label">Taxa de Sucesso</div>
+          </div>
+        </div>
+
+        <div class="translation-breakdown">
+          <h4>Métodos de Tradução</h4>
+          <div class="breakdown-grid">
+            <div class="breakdown-item tm">
+              <span class="method">TM/Fuzzy:</span>
+              <span class="count">{{ currentSession.translationStats.tmHits }}</span>
+            </div>
+            <div class="breakdown-item dict">
+              <span class="method">Dicionário:</span>
+              <span class="count">{{ currentSession.translationStats.dictHits }}</span>
+            </div>
+            <div class="breakdown-item api">
+              <span class="method">API:</span>
+              <span class="count">{{ currentSession.translationStats.apiTranslations }}</span>
+            </div>
+            <div class="breakdown-item skipped">
+              <span class="method">Ignoradas:</span>
+              <span class="count">{{ currentSession.translationStats.skipped }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="error-message" *ngIf="currentSession.status === 'error'">
+        <h4>❌ Erro no Treino</h4>
+        <p>{{ currentSession.error || 'Erro desconhecido' }}</p>
+      </div>
+
+      <div class="actions" *ngIf="currentSession.status === 'completed'">
+        <button (click)="analyzeResults()" 
+                [disabled]="isAnalyzing"
+                class="analyze-btn">
+          <span *ngIf="!isAnalyzing">🔍 Analisar Resultados</span>
+          <span *ngIf="isAnalyzing">⏳ Analisando...</span>
+        </button>
+        
+        <button (click)="improveDictionary(true)" 
+                [disabled]="isImprovingDict"
+                class="auto-improve-btn">
+          <span *ngIf="!isImprovingDict">⚡ Auto-melhorar</span>
+          <span *ngIf="isImprovingDict">⏳ Aplicando...</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Analysis Results Section -->
+  <div class="section" *ngIf="analysisResult">
+    <h2>🔍 Análise de Resultados</h2>
+    
+    <div class="analysis-summary">
+      <div class="summary-stats">
+        <div class="summary-card">
+          <div class="summary-number">{{ analysisResult.totalFiles }}</div>
+          <div class="summary-label">Arquivos Analisados</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-number">{{ analysisResult.totalUniquePhrases }}</div>
+          <div class="summary-label">Frases Únicas</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-number">{{ analysisResult.dictionaryCandidates.length }}</div>
+          <div class="summary-label">Candidatos p/ Dicionário</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-number">{{ (analysisResult.averageTranslationRate * 100).toFixed(1) }}%</div>
+          <div class="summary-label">Taxa Média</div>
+        </div>
+      </div>
+
+      <div class="language-distribution" *ngIf="getLanguageNames().length > 0">
+        <h4>Distribuição de Idiomas</h4>
+        <div class="language-list">
+          <div *ngFor="let lang of getLanguageNames()" class="language-item">
+            <span class="language">{{ lang }}</span>
+            <span class="count">{{ analysisResult.languageDistribution[lang] }} arquivos</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="recommendations" *ngIf="analysisResult.recommendations.length > 0">
+        <h4>💡 Recomendações</h4>
+        <ul>
+          <li *ngFor="let rec of analysisResult.recommendations">{{ rec }}</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Dictionary Candidates -->
+    <div class="candidates-section">
+      <div class="candidates-header">
+        <h3>📚 Candidatos para o Dicionário</h3>
+        <div class="selection-actions">
+          <button (click)="selectAllHighFrequency()" class="select-all-btn">
+            Selecionar Frequentes (3+)
+          </button>
+          <button (click)="clearSelection()" class="clear-selection-btn">
+            Limpar Seleção
+          </button>
+          <span class="selected-count">{{ selectedPhrases.length }} selecionadas</span>
+        </div>
+      </div>
+
+      <div class="candidates-list">
+        <div *ngFor="let candidate of analysisResult.dictionaryCandidates" 
+             class="candidate-item"
+             [class.selected]="isPhraseSelected(candidate)"
+             (click)="togglePhraseSelection(candidate)">
+          
+          <div class="candidate-content">
+            <div class="phrase-original">{{ candidate.original }}</div>
+            <div class="phrase-translation">→ {{ candidate.mostCommon }}</div>
+            <div class="phrase-meta">
+              <span class="frequency">{{ candidate.frequency }}x</span>
+              <span class="variants" *ngIf="candidate.translations.length > 1">
+                ({{ candidate.translations.length }} variações)
+              </span>
+            </div>
+          </div>
+          
+          <div class="selection-indicator">
+            <span *ngIf="isPhraseSelected(candidate)">✓</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="apply-section" *ngIf="selectedPhrases.length > 0">
+        <button (click)="improveDictionary(false)" 
+                [disabled]="isImprovingDict"
+                class="apply-btn">
+          <span *ngIf="!isImprovingDict">✅ Aplicar Selecionadas ({{ selectedPhrases.length }})</span>
+          <span *ngIf="isImprovingDict">⏳ Aplicando...</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

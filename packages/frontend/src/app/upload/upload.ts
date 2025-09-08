@@ -2,7 +2,7 @@ import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { SubtitleService, SubtitleItem } from '../services/subtitle';
+import { SubtitleService, SubtitleItem } from '../services/subtitle.service';
 
 @Component({
   selector: 'app-upload',
@@ -16,6 +16,7 @@ export class UploadComponent {
   isUploading = false;
   uploadError: string | null = null;
   uploadSuccess: string | null = null;
+  mode: 'single' | 'training' = 'single';
 
   constructor(
     private subtitleService: SubtitleService,
@@ -30,6 +31,25 @@ export class UploadComponent {
     } else {
       this.uploadError = 'Por favor, selecione um arquivo .srt válido';
       this.selectedFile = null;
+    }
+  }
+
+  setMode(newMode: 'single' | 'training'): void {
+    this.mode = newMode;
+    this.selectedFile = null;
+    this.uploadError = null;
+    this.uploadSuccess = null;
+  }
+
+  handleFileAction(): void {
+    if (this.mode === 'training') {
+      this.router.navigate(['/training']);
+    } else {
+      // Trigger file selection for single mode
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      if (fileInput) {
+        fileInput.click();
+      }
     }
   }
 

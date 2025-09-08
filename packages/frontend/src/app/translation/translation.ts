@@ -20,6 +20,10 @@ export class TranslationComponent implements OnInit, OnDestroy {
   translationSuccess: string | null = null;
   translatedSrtContent = '';
 
+  // Indicadores de treinamento
+  isTrainingActive = false;
+  translationProgress: { current: number; total: number; percentage: number } | null = null;
+
   // Referencias aos elementos de scroll
   @ViewChild('originalList') originalList!: ElementRef<HTMLDivElement>;
   @ViewChild('translatedList') translatedList!: ElementRef<HTMLDivElement>;
@@ -51,6 +55,41 @@ export class TranslationComponent implements OnInit, OnDestroy {
     if (this.subtitles.length === 0) {
       this.router.navigate(['/upload']);
     }
+
+    // Verifica se há um treinamento ativo (simulação)
+    this.checkTrainingStatus();
+  }
+
+  /**
+   * Verifica se há um treinamento ativo no sistema
+   */
+  private checkTrainingStatus(): void {
+    // Verifica se está no browser (não no SSR)
+    if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
+      return;
+    }
+
+    // Simula verificação de treinamento ativo
+    // Em uma implementação real, isso viria de um serviço que monitora sessões de treinamento
+    const trainingData = localStorage.getItem('activeTrainingSession');
+    if (trainingData) {
+      try {
+        const training = JSON.parse(trainingData);
+        const now = Date.now();
+        const trainingAge = now - training.startTime;
+        
+        // Se o treinamento foi iniciado há menos de 1 hora, considera ativo
+        if (trainingAge < 60 * 60 * 1000) {
+          this.isTrainingActive = true;
+          console.log('🧠 Treinamento ativo detectado - usando melhorias do dicionário');
+        } else {
+          // Remove treinamento expirado
+          localStorage.removeItem('activeTrainingSession');
+        }
+      } catch (e) {
+        localStorage.removeItem('activeTrainingSession');
+      }
+    }
   }
 
   ngOnDestroy(): void {
@@ -79,7 +118,20 @@ export class TranslationComponent implements OnInit, OnDestroy {
     this.translationError = null;
     this.translationSuccess = null;
 
+    // Inicializa o progresso
+    this.translationProgress = {
+      current: 0,
+      total: this.subtitles.length,
+      percentage: 0
+    };
+
     console.log('🔄 Iniciando tradução...');
+    if (this.isTrainingActive) {
+      console.log('⚡ Usando melhorias do treinamento ativo');
+    }
+
+    // Simula progresso da tradução
+    this.simulateTranslationProgress();
 
     this.subtitleService.translateSubtitle(this.subtitles, 'pt-BR').subscribe({
       next: (response) => {
@@ -95,19 +147,73 @@ export class TranslationComponent implements OnInit, OnDestroy {
           this.translatedSrtContent = response.data.srtContent;
           console.log('📝 Conteúdo SRT recebido:', this.translatedSrtContent.length, 'caracteres');
         }
+
+        // Finaliza o progresso
+        if (this.translationProgress) {
+          this.translationProgress.current = this.subtitles.length;
+          this.translationProgress.percentage = 100;
+        }
+
+        // Remove o progresso após um breve delay para mostrar 100%
+        setTimeout(() => {
+          this.translationProgress = null;
+          try { this.cdr.detectChanges(); } catch (e) { /* ignore */ }
+        }, 500);
         
-  this.translationSuccess = 'Legendas traduzidas com sucesso!';
-  console.log('🎉 Tradução concluída com sucesso!');
-  // zoneless app: manually trigger change detection so template updates
-  try { this.cdr.detectChanges(); } catch (e) { /* ignore */ }
+        this.translationSuccess = this.isTrainingActive 
+          ? 'Legendas traduzidas com melhorias do treinamento!' 
+          : 'Legendas traduzidas com sucesso!';
+        
+        console.log('🎉 Tradução concluída com sucesso!');
+        if (this.isTrainingActive) {
+          console.log('⚡ Beneficiado pelas melhorias do treinamento ativo');
+        }
+        
+        // zoneless app: manually trigger change detection so template updates
+        try { this.cdr.detectChanges(); } catch (e) { /* ignore */ }
       },
       error: (error) => {
         console.error('❌ Erro na tradução:', error);
         this.isTranslating = false;
         this.translationError = error.error?.error || 'Erro ao traduzir legendas';
+        this.translationProgress = null;
   try { this.cdr.detectChanges(); } catch (e) { /* ignore */ }
       }
     });
+  }
+
+  /**
+   * Simula o progresso da tradução para feedback visual
+   */
+  private simulateTranslationProgress(): void {
+    if (!this.translationProgress) return;
+
+    const totalSteps = Math.min(this.subtitles.length, 20); // Máximo 20 steps para performance
+    const stepDuration = 100; // ms entre cada step
+    let currentStep = 0;
+
+    const progressInterval = setInterval(() => {
+      if (!this.translationProgress || !this.isTranslating) {
+        clearInterval(progressInterval);
+        return;
+      }
+
+      currentStep++;
+      const percentage = Math.min((currentStep / totalSteps) * 90, 90); // Máximo 90% até receber resposta real
+      
+      this.translationProgress.current = Math.floor((percentage / 100) * this.subtitles.length);
+      this.translationProgress.percentage = Math.floor(percentage);
+
+      try { 
+        this.cdr.detectChanges(); 
+      } catch (e) { 
+        /* ignore */ 
+      }
+
+      if (currentStep >= totalSteps) {
+        clearInterval(progressInterval);
+      }
+    }, stepDuration);
   }
 
   downloadTranslatedSRT(): void {

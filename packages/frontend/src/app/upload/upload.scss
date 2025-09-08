@@ -15,6 +15,52 @@
   }
 }
 
+.mode-selector {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  justify-content: center;
+
+  .mode-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    border: 2px solid #bdc3c7;
+    background: white;
+    color: #2c3e50;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 1rem;
+    font-weight: 500;
+
+    svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    &:hover {
+      border-color: #3498db;
+      color: #3498db;
+    }
+
+    &.active {
+      border-color: #3498db;
+      background: #3498db;
+      color: white;
+    }
+  }
+
+  @media (max-width: 600px) {
+    flex-direction: column;
+    
+    .mode-btn {
+      justify-content: center;
+    }
+  }
+}
+
 .upload-area {
   border: 2px dashed #bdc3c7;
   border-radius: 8px;

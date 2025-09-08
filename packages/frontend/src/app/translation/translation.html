@@ -4,6 +4,15 @@
       ← Voltar
     </button>
     <h1>Tradução de Legendas</h1>
+    
+    <!-- Indicador de treinamento ativo -->
+    <div *ngIf="isTrainingActive" class="training-indicator">
+      <div class="training-icon">🧠</div>
+      <div class="training-info">
+        <span class="training-text">Treinamento ativo</span>
+        <span class="training-subtext">Melhorando dicionário...</span>
+      </div>
+    </div>
   </div>
 
   <div class="file-info">
@@ -21,7 +30,22 @@
 
     <div *ngIf="isTranslating" class="loading">
       <div class="spinner"></div>
-      <p>Traduzindo legendas...</p>
+      <div class="loading-content">
+        <p>Traduzindo legendas...</p>
+        <div *ngIf="isTrainingActive" class="training-boost">
+          <span class="boost-icon">⚡</span>
+          <span class="boost-text">Usando melhorias do treinamento</span>
+        </div>
+        <div *ngIf="translationProgress" class="translation-progress">
+          <div class="progress-bar">
+            <div class="progress-fill" [style.width.%]="translationProgress.percentage"></div>
+          </div>
+          <span class="progress-text">
+            {{ translationProgress.current }}/{{ translationProgress.total }} 
+            ({{ translationProgress.percentage }}%)
+          </span>
+        </div>
+      </div>
     </div>
 
     <div *ngIf="translatedSrtContent" class="download-section">

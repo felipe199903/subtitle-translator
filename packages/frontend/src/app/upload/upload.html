@@ -2,14 +2,36 @@
   <h1>Tradutor de Legendas SRT</h1>
   <p>Envie seu arquivo .srt para traduzir para português brasileiro</p>
   
+  <div class="mode-selector">
+    <button class="mode-btn" 
+            [class.active]="mode === 'single'"
+            (click)="setMode('single')">
+      <svg viewBox="0 0 24 24" width="24" height="24">
+        <path fill="currentColor" d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+      </svg>
+      Tradução Única
+    </button>
+    
+    <button class="mode-btn"
+            [class.active]="mode === 'training'"
+            (click)="setMode('training')">
+      <svg viewBox="0 0 24 24" width="24" height="24">
+        <path fill="currentColor" d="M12,3L1,9L12,15L21,10.09V17H23V9M5,13.18V17.18L12,21L19,17.18V13.18L12,17L5,13.18Z" />
+      </svg>
+      Modo Treinamento
+    </button>
+  </div>
+
   <div class="upload-area" [class.dragover]="false">
     <div class="upload-content">
       <svg class="upload-icon" viewBox="0 0 24 24" width="48" height="48">
         <path fill="currentColor" d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
       </svg>
       
-      <h3>Selecione ou arraste seu arquivo .srt</h3>
-      <p>Máximo 10MB</p>
+      <h3 *ngIf="mode === 'single'">Selecione ou arraste seu arquivo .srt</h3>
+      <h3 *ngIf="mode === 'training'">Modo de Treinamento Ativo</h3>
+      <p *ngIf="mode === 'single'">Máximo 10MB</p>
+      <p *ngIf="mode === 'training'">Processe múltiplos arquivos para melhorar o dicionário</p>
       
       <input type="file" 
              #fileInput 
@@ -19,8 +41,9 @@
       
       <button type="button" 
               class="select-file-btn"
-              (click)="fileInput.click()">
-        Selecionar Arquivo
+              (click)="handleFileAction()">
+        <span *ngIf="mode === 'single'">Selecionar Arquivo</span>
+        <span *ngIf="mode === 'training'">Ir para Treinamento</span>
       </button>
     </div>
   </div>
