@@ -50,7 +50,7 @@ export class SubtitleService {
       targetLanguage
     };
 
-    return this.http.post<TranslationResponse>(`${this.apiUrl}/translate`, body);
+    return this.http.post<TranslationResponse>(`${this.apiUrl}/translate-text`, body);
   }
 
   getSupportedLanguages(): Observable<any> {

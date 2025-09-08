@@ -44,7 +44,7 @@ export class SubtitleService {
   }
 
   translateSubtitle(subtitles: SubtitleItem[], targetLanguage: string = 'pt-BR'): Observable<TranslationResponse> {
-    return this.http.post<TranslationResponse>(`${this.apiUrl}/translate`, {
+    return this.http.post<TranslationResponse>(`${this.apiUrl}/translate-text`, {
       subtitles,
       targetLanguage
     });
