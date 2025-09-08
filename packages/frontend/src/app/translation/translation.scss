@@ -141,6 +141,36 @@
     color: #2c3e50;
     margin-bottom: 1rem;
   }
+
+  .sync-info {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    background-color: #e8f4fd;
+    color: #2980b9;
+    padding: 0.75rem;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+    border: 1px solid #d4edda;
+
+    .sync-icon {
+      margin-right: 0.5rem;
+      animation: rotate 2s linear infinite;
+    }
+
+    .highlight-indicator {
+      background-color: #fff3cd;
+      color: #856404;
+      padding: 0.2rem 0.5rem;
+      border-radius: 12px;
+      font-size: 0.8rem;
+      border: 1px solid #ffeaa7;
+      animation: pulse 1s ease-in-out infinite alternate;
+    }
+  }
 }
 
 .subtitles-grid {
@@ -169,14 +199,73 @@
   overflow-y: auto;
   border: 1px solid #ddd;
   border-radius: 4px;
+  scroll-behavior: auto; // Mudado de smooth para auto para evitar conflitos
+  
+  // Destaque visual para indicar scroll sincronizado
+  &:hover {
+    border-color: #3498db;
+    box-shadow: 0 0 5px rgba(52, 152, 219, 0.3);
+    transition: border-color 0.1s ease, box-shadow 0.1s ease; // Transição mais rápida
+  }
+  
+  // Customização da scrollbar
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+  
+  &::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+  }
+  
+  &::-webkit-scrollbar-thumb {
+    background: #bdc3c7;
+    border-radius: 4px;
+    transition: background 0.1s ease; // Transição mais rápida
+    
+    &:hover {
+      background: #95a5a6;
+    }
+  }
 }
 
 .subtitle-item {
   padding: 1rem;
   border-bottom: 1px solid #eee;
+  transition: background-color 0.1s ease, border-left 0.1s ease, padding-left 0.1s ease; // Transições mais específicas e rápidas
+  cursor: pointer;
 
   &:last-child {
     border-bottom: none;
+  }
+
+  &:hover {
+    background-color: #f8f9fa;
+    border-left: 3px solid #3498db;
+    padding-left: calc(1rem - 3px);
+  }
+
+  &.highlighted {
+    background-color: #e3f2fd;
+    border-left: 4px solid #2196f3;
+    padding-left: calc(1rem - 4px);
+    box-shadow: 0 2px 8px rgba(33, 150, 243, 0.15);
+    // Removido transform para evitar reflows desnecessários
+
+    .subtitle-time {
+      color: #1976d2;
+      font-weight: 600;
+    }
+
+    .subtitle-text {
+      color: #0d47a1;
+      font-weight: 500;
+
+      &.translated {
+        color: #2e7d32;
+        font-weight: 600;
+      }
+    }
   }
 
   .subtitle-time {
@@ -184,11 +273,13 @@
     color: #7f8c8d;
     margin-bottom: 0.5rem;
     font-family: monospace;
+    transition: color 0.1s ease; // Transição mais rápida
   }
 
   .subtitle-text {
     color: #2c3e50;
     line-height: 1.4;
+    transition: color 0.1s ease; // Transição mais rápida
 
     &.translated {
       color: #27ae60;
@@ -200,4 +291,14 @@
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
+}
+
+@keyframes rotate {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0% { opacity: 0.7; transform: scale(0.98); }
+  100% { opacity: 1; transform: scale(1.02); }
 }

@@ -45,12 +45,24 @@
 
   <div class="subtitles-preview">
     <h3>Prévia das Legendas</h3>
+    <div *ngIf="translatedSrtContent" class="sync-info">
+      <span class="sync-icon">🔄</span>
+      <span>Scrolls sincronizados | Passe o mouse sobre as legendas para destacar</span>
+      <span *ngIf="hoveredIndex !== null" class="highlight-indicator">
+        ✨ Destacando legenda {{ hoveredIndex + 1 }}
+      </span>
+    </div>
     <div class="subtitles-grid">
       <div class="subtitle-column">
         <h4>Original</h4>
-        <div class="subtitle-list">
+        <div class="subtitle-list" 
+             #originalList
+             (scroll)="onScroll($event, 'original')">
           <div *ngFor="let subtitle of subtitles; let i = index" 
-               class="subtitle-item">
+               class="subtitle-item"
+               [class.highlighted]="hoveredIndex === i"
+               (mouseenter)="setHoveredIndex(i)"
+               (mouseleave)="clearHoveredIndex()">
             <div class="subtitle-time">
               {{ subtitle.startTime }} → {{ subtitle.endTime }}
             </div>
@@ -61,9 +73,14 @@
 
       <div *ngIf="translatedSrtContent" class="subtitle-column">
         <h4>Traduzido (PT-BR)</h4>
-        <div class="subtitle-list">
+        <div class="subtitle-list"
+             #translatedList
+             (scroll)="onScroll($event, 'translated')">
           <div *ngFor="let subtitle of subtitles; let i = index" 
-               class="subtitle-item">
+               class="subtitle-item"
+               [class.highlighted]="hoveredIndex === i"
+               (mouseenter)="setHoveredIndex(i)"
+               (mouseleave)="clearHoveredIndex()">
             <div class="subtitle-time">
               {{ subtitle.startTime }} → {{ subtitle.endTime }}
             </div>
