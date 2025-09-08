@@ -25,7 +25,9 @@ const upload = multer({
 
 // Routes
 router.post('/upload', upload.single('srtFile'), uploadMiddleware, subtitleController.uploadAndProcess);
-router.post('/translate', subtitleController.translateSubtitle);
+router.post('/translate', upload.single('srt'), uploadMiddleware, subtitleController.uploadAndProcess);
+router.post('/translate-text', subtitleController.translateSubtitle);
 router.get('/languages', subtitleController.getSupportedLanguages);
+router.get('/debug-tm', subtitleController.debugTM);
 
 export default router;

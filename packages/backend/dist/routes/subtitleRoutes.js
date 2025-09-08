@@ -30,5 +30,6 @@ const upload = (0, multer_1.default)({
 router.post('/upload', upload.single('srtFile'), uploadMiddleware_1.uploadMiddleware, subtitleController.uploadAndProcess);
 router.post('/translate', subtitleController.translateSubtitle);
 router.get('/languages', subtitleController.getSupportedLanguages);
+router.get('/debug-tm', subtitleController.debugTM);
 exports.default = router;
 //# sourceMappingURL=subtitleRoutes.js.map

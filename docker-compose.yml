@@ -1,0 +1,19 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: packages/backend/Dockerfile
+    volumes:
+      - tm_data:/data
+      # Optional: mount a host memory.csv into the container to import at startup
+      # - ./packages/backend/tm/memory.csv:/data/memory.csv:ro
+    environment:
+      - TM_DB_PATH=/data/tm.db
+      - NODE_ENV=production
+    ports:
+      - "3001:3001"
+  # Entrypoint handles import and starts the server
+
+volumes:
+  tm_data:
+    driver: local

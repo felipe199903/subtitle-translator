@@ -1,0 +1,79 @@
+1
+00:00:01,000 --> 00:00:02,000
+A monochrome fade
+
+2
+00:00:02,000 --> 00:00:03,000
+I-I didn't see anything...
+
+3
+00:00:03,000 --> 00:00:04,000
+You know...
+
+4
+00:00:04,000 --> 00:00:05,000
+Hey, wait a sec!
+
+5
+00:00:05,000 --> 00:00:06,000
+Why do you know my name?
+
+6
+00:00:06,000 --> 00:00:07,000
+We go to the same school.
+
+7
+00:00:07,000 --> 00:00:08,000
+Amazing! You know the name of someone like me!
+
+8
+00:00:08,000 --> 00:00:09,000
+Do you believe in vampires?
+
+9
+00:00:09,000 --> 00:00:10,000
+What's up with vampires?
+
+10
+00:00:10,000 --> 00:00:11,000
+There's been a rumor going around lately.
+
+11
+00:00:11,000 --> 00:00:12,000
+I'm going to head to the library now.
+
+12
+00:00:12,000 --> 00:00:13,000
+Do you want come with me?
+
+13
+00:00:13,000 --> 00:00:14,000
+What are you gonna do at the library?
+
+14
+00:00:14,000 --> 00:00:15,000
+You have exams next year, right?
+
+15
+00:00:15,000 --> 00:00:16,000
+Do you have a cellphone?
+
+16
+00:00:16,000 --> 00:00:17,000
+Can I borrow it?
+
+17
+00:00:17,000 --> 00:00:18,000
+You made a friend.
+
+18
+00:00:18,000 --> 00:00:19,000
+Are you alright?
+
+19
+00:00:19,000 --> 00:00:20,000
+Give me thy blood.
+
+20
+00:00:20,000 --> 00:00:21,000
+Isn't a vampire supposed to be immortal?

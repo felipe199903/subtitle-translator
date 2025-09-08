@@ -16,6 +16,13 @@
 			"isBackground": true,
 			"problemMatcher": [],
 			"group": "build"
+		},
+		{
+			"label": "Iniciar com Docker",
+			"type": "shell",
+			"command": "npm run dev:docker",
+			"isBackground": true,
+			"group": "build"
 		}
 	]
 }
