@@ -315,3 +315,126 @@ button:disabled {
     width: 100%; 
   }
 }
+
+.simple-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2rem;
+  gap: 1rem;
+}
+
+.simple-loading .spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #007bff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.simple-loading p {
+  color: #666;
+  font-size: 14px;
+  margin: 0;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Estados da seção de métricas */
+.loading-state {
+  min-height: 200px;
+}
+
+.metrics-header-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1rem;
+}
+
+.dashboard-state {
+  opacity: 1;
+  transition: opacity 0.3s ease-in-out;
+}
+
+.loading-state {
+  .metrics-header-loading {
+    text-align: center;
+    margin-bottom: 1rem;
+  }
+  
+  .loading-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 200px;
+  }
+  
+  .simple-loading {
+    text-align: center;
+    
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 1rem;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    p {
+      color: #666;
+      font-size: 1.1rem;
+    }
+  }
+}
+
+.dashboard-state {
+  opacity: 1;
+  transition: opacity 0.3s ease-in-out;
+}
+
+.error-state {
+  min-height: 150px;
+  
+  .no-metrics {
+    text-align: center;
+    padding: 2rem;
+    
+    p {
+      color: #dc3545;
+      margin-bottom: 0.5rem;
+      
+      &:first-child {
+        font-weight: 600;
+      }
+    }
+  }
+}
+
+.error-state {
+  min-height: 150px;
+}
+
+.error-state .no-metrics {
+  text-align: center;
+  padding: 2rem;
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 8px;
+  color: #856404;
+}
+
+.error-state .no-metrics p {
+  margin: 0.5rem 0;
+}

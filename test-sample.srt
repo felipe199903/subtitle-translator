@@ -1,0 +1,39 @@
+1
+00:00:01,000 --> 00:00:03,000
+Hello world
+
+2
+00:00:03,500 --> 00:00:06,000
+This is a test subtitle
+
+3
+00:00:06,500 --> 00:00:08,500
+How are you?
+
+4
+00:00:09,000 --> 00:00:11,000
+Welcome to the subtitle translator
+
+5
+00:00:11,500 --> 00:00:14,000
+Computer technology is amazing
+
+6
+00:00:14,500 --> 00:00:17,000
+You know, this system works very well
+
+7
+00:00:17,500 --> 00:00:20,000
+Let's test the translation quality
+
+8
+00:00:20,500 --> 00:00:23,000
+Machine learning helps improve accuracy
+
+9
+00:00:23,500 --> 00:00:26,000
+Thank you for using our service
+
+10
+00:00:26,500 --> 00:00:28,500
+Goodbye and see you later

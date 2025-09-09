@@ -13,6 +13,7 @@ import { NotificationService } from '../services/notification.service';
 import { LoadingService } from '../services/loading.service';
 import { LoadingComponent } from '../components/loading/loading.component';
 import { interval, Subscription } from 'rxjs';
+import { ChangeDetectorRef } from '@angular/core';
 import { environment } from '../../environments/environment';
 
 interface TrainingSession {
@@ -65,7 +66,7 @@ export class TrainingComponent implements OnInit, OnDestroy {
   isImprovingDict = false;
   batchUploadProgress = { current: 0, total: 0, currentBatch: 0, totalBatches: 0 };
   systemMetrics: any = null;
-  isLoadingMetrics = false;
+  isLoadingMetrics = true; // Inicia como true para mostrar loading inicial
   massiveTrainingStats = { 
     totalSessions: 0, 
     completedSessions: 0, 
@@ -80,10 +81,14 @@ export class TrainingComponent implements OnInit, OnDestroy {
     private subtitleService: SubtitleService,
     private router: Router,
     private notificationService: NotificationService,
-    private loadingService: LoadingService
+    private loadingService: LoadingService,
+    private cdr: ChangeDetectorRef
   ) {}
 
   ngOnInit(): void {
+    // Força detecção inicial para garantir que o loading seja exibido
+    this.cdr.detectChanges();
+    
     // Carregar métricas do sistema ao inicializar o componente
     this.loadSystemMetrics();
     
@@ -610,23 +615,43 @@ export class TrainingComponent implements OnInit, OnDestroy {
    * Carrega as métricas do sistema para mostrar impacto do treinamento
    */
   loadSystemMetrics(): void {
+    // Resetar estado
+    this.systemMetrics = null;
     this.isLoadingMetrics = true;
-    this.loadingService.show('metrics', 'Carregando métricas do sistema...');
+    
+    // Forçar detecção de mudanças para mostrar loading imediatamente
+    this.cdr.detectChanges();
+    
+    // Timeout de segurança
+    const timeoutId = setTimeout(() => {
+      if (this.isLoadingMetrics) {
+        this.isLoadingMetrics = false;
+        this.cdr.detectChanges();
+        this.notificationService.error('Timeout ao carregar métricas do sistema');
+      }
+    }, 15000); // 15 segundos de timeout
     
     this.subtitleService.getSystemMetrics().subscribe({
       next: (response) => {
+        clearTimeout(timeoutId);
+        
         if (response.success) {
           this.systemMetrics = response.data;
-          console.log('📊 Métricas do sistema carregadas:', this.systemMetrics);
+        } else {
+          this.systemMetrics = null;
         }
+        
         this.isLoadingMetrics = false;
-        this.loadingService.hide('metrics');
+        this.cdr.detectChanges();
       },
       error: (error) => {
-        console.error('❌ Erro ao carregar métricas do sistema:', error);
-        this.notificationService.error('Erro ao carregar métricas do sistema');
+        clearTimeout(timeoutId);
+        
+        this.systemMetrics = null;
         this.isLoadingMetrics = false;
-        this.loadingService.hide('metrics');
+        this.cdr.detectChanges();
+        
+        this.notificationService.error('Erro ao carregar métricas do sistema');
       }
     });
   }

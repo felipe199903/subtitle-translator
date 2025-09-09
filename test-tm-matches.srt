@@ -1,0 +1,55 @@
+1
+00:00:01,000 --> 00:00:03,000
+Hello world
+
+2
+00:00:03,500 --> 00:00:06,000
+This is a test subtitle
+
+3
+00:00:06,500 --> 00:00:08,500
+How are you?
+
+4
+00:00:09,000 --> 00:00:11,000
+Computer
+
+5
+00:00:11,500 --> 00:00:13,500
+Subtitle
+
+6
+00:00:14,000 --> 00:00:16,500
+You know...
+
+7
+00:00:17,000 --> 00:00:20,000
+Well, I'll be leaving now.
+
+8
+00:00:20,500 --> 00:00:23,000
+Hey, wait a sec!
+
+9
+00:00:23,500 --> 00:00:26,000
+I've finally caught up with you.
+
+10
+00:00:26,500 --> 00:00:29,000
+You walk pretty fast,
+
+11
+00:00:29,500 --> 00:00:31,000
+Huh?
+
+12
+00:00:31,500 --> 00:00:34,000
+Why do you know my name?
+
+13
+00:00:34,500 --> 00:00:37,000
+We go to the same school.
+
+14
+00:00:37,500 --> 00:00:40,000
+Amazing! You know the name of someone like me!

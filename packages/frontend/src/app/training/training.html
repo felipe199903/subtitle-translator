@@ -7,25 +7,34 @@
     <p>Envie múltiplos arquivos .srt para treinar e melhorar nosso sistema de tradução</p>
   </div>
 
-  <!-- System Metrics Section - Sempre visível -->
+  <!-- System Metrics Section -->
   <div class="section metrics-section">
-    <div class="metrics-header">
-      <h2>📊 Estado do Sistema de Tradução</h2>
-      <button (click)="refreshSystemMetrics()" 
-              [disabled]="isLoadingMetrics"
-              class="refresh-metrics-btn">
-        <span *ngIf="!isLoadingMetrics">🔄 Atualizar</span>
-        <span *ngIf="isLoadingMetrics">⏳ Carregando...</span>
-      </button>
+    
+    <!-- ESTADO 1: Loading inicial - Só mostra o loading -->
+    <div *ngIf="isLoadingMetrics" class="loading-state">
+      <div class="metrics-header-loading">
+        <h2>📊 Estado do Sistema de Tradução</h2>
+      </div>
+      <div class="loading-container">
+        <div class="simple-loading">
+          <div class="spinner"></div>
+          <p>Carregando métricas do sistema...</p>
+        </div>
+      </div>
     </div>
 
-    <!-- Loading para métricas -->
-    <div class="loading-container" *ngIf="isLoadingMetrics && !systemMetrics">
-      <app-loading context="metrics"></app-loading>
-    </div>
+    <!-- ESTADO 2: Dashboard completo com dados -->
+    <div *ngIf="!isLoadingMetrics && systemMetrics" class="dashboard-state">
+      <div class="metrics-header">
+        <h2>📊 Estado do Sistema de Tradução</h2>
+        <button (click)="refreshSystemMetrics()" 
+                class="refresh-metrics-btn">
+          🔄 Atualizar
+        </button>
+      </div>
 
-    <!-- Conteúdo das métricas -->
-    <div *ngIf="systemMetrics" class="metrics-content">
+      <!-- Conteúdo das métricas -->
+      <div class="metrics-content">
 
     <!-- System Health Indicators -->
     <div class="system-health">
@@ -109,13 +118,24 @@
       </div>
     </div>
 
-    </div> <!-- Fechamento da div metrics-content -->
+      </div> <!-- Fechamento da div metrics-content -->
+    </div> <!-- Fechamento da div dashboard-state -->
 
-    <!-- Mensagem quando não há métricas -->
-    <div *ngIf="!systemMetrics && !isLoadingMetrics" class="no-metrics">
-      <p>📊 Nenhuma métrica disponível. Clique em "Atualizar" para carregar.</p>
+    <!-- ESTADO 3: Erro ou sem dados -->
+    <div *ngIf="!isLoadingMetrics && !systemMetrics" class="error-state">
+      <div class="metrics-header">
+        <h2>📊 Estado do Sistema de Tradução</h2>
+        <button (click)="refreshSystemMetrics()" 
+                class="refresh-metrics-btn">
+          🔄 Tentar Novamente
+        </button>
+      </div>
+      <div class="no-metrics">
+        <p>⚠️ Não foi possível carregar as métricas do sistema.</p>
+        <p>📊 Clique em "Tentar Novamente" para recarregar.</p>
+      </div>
     </div>
-  </div>
+  </div> <!-- Fechamento da div metrics-section -->
 
   <!-- Massive Training Progress Section -->
   <div class="section massive-training-section" *ngIf="isMassiveTrainingActive()">

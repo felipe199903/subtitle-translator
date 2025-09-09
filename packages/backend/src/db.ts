@@ -8,7 +8,7 @@ export async function getDb() {
   if (db) return db;
   // Allow overriding DB path in Docker via TM_DB_PATH env var. Fallback for local dev.
   const envPath = process.env.TM_DB_PATH || process.env.DB_PATH;
-  const dbPath = envPath ? path.resolve(envPath) : path.resolve(process.cwd(), 'packages', 'backend', 'tm.db');
+  const dbPath = envPath ? path.resolve(envPath) : path.resolve(__dirname, '..', 'tm.db');
   db = await open({ filename: dbPath, driver: sqlite3.Database });
   await db.exec(`CREATE TABLE IF NOT EXISTS tm (
     src TEXT PRIMARY KEY,
