@@ -1,10 +1,12 @@
 import { Component } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
+import { ToastComponent } from './components/toast/toast.component';
+import { LoadingComponent } from './components/loading/loading.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet],
+  imports: [RouterOutlet, ToastComponent, LoadingComponent],
   template: `
     <div class="app-container">
       <header class="header">
@@ -16,6 +18,8 @@ import { RouterOutlet } from '@angular/router';
       <main class="main-container">
         <router-outlet></router-outlet>
       </main>
+      <app-toast></app-toast>
+      <app-loading [isGlobal]="true"></app-loading>
     </div>
   `,
   styles: [`

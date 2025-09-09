@@ -94,6 +94,73 @@ export interface ImprovementResponse {
   };
 }
 
+export interface SystemMetricsResponse {
+  success: boolean;
+  data: {
+    timestamp: string;
+    translationMemory: {
+      totalEntries: number;
+      recentEntries: number;
+      highConfidenceEntries: number;
+    };
+    dictionary: {
+      totalPhrases: number;
+      phrasesByLength: {
+        single: number;
+        multi: number;
+      };
+    };
+    training: {
+      totalSessions: number;
+      totalFilesProcessed: number;
+      totalPhrasesLearned: number;
+      lastTrainingDate: string | null;
+    };
+    performance: {
+      tmIndexSize: number;
+      averageTranslationMethods: {
+        tmHitRate: string;
+        dictHitRate: string;
+        apiUsageRate: string;
+        skipRate: string;
+      } | null;
+    };
+    systemHealth: {
+      tmDatabase: 'healthy' | 'needs_data';
+      dictionary: 'healthy' | 'needs_expansion';
+      trainingData: 'trained' | 'not_trained';
+    };
+    recommendations: string[];
+  };
+}
+
+export interface TrainingComparisonResponse {
+  success: boolean;
+  data: {
+    before: {
+      totalSubtitles: number;
+      tmHitRate: number;
+      dictHitRate: number;
+      apiUsageRate: number;
+      skipRate: number;
+    };
+    after: {
+      totalSubtitles: number;
+      tmHitRate: number;
+      dictHitRate: number;
+      apiUsageRate: number;
+      skipRate: number;
+    };
+    improvement: {
+      tmHitRateImprovement: number;
+      dictHitRateImprovement: number;
+      apiUsageReduction: number;
+      overallImprovement: number;
+    };
+    summary: string;
+  };
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -165,6 +232,17 @@ export class SubtitleService {
     return this.http.post<ImprovementResponse>(`${this.apiUrl}/improve-dictionary`, {
       sessionId,
       selectedCandidates
+    });
+  }
+
+  getSystemMetrics(): Observable<SystemMetricsResponse> {
+    return this.http.get<SystemMetricsResponse>(`${this.apiUrl}/system-metrics`);
+  }
+
+  compareTrainingImpact(beforeSessionId: string, afterSessionId: string): Observable<TrainingComparisonResponse> {
+    return this.http.post<TrainingComparisonResponse>(`${this.apiUrl}/compare-training-impact`, {
+      beforeSessionId,
+      afterSessionId
     });
   }
 }

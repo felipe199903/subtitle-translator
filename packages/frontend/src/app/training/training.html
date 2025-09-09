@@ -7,8 +7,157 @@
     <p>Envie múltiplos arquivos .srt para treinar e melhorar nosso sistema de tradução</p>
   </div>
 
+  <!-- System Metrics Section - Sempre visível -->
+  <div class="section metrics-section">
+    <div class="metrics-header">
+      <h2>📊 Estado do Sistema de Tradução</h2>
+      <button (click)="refreshSystemMetrics()" 
+              [disabled]="isLoadingMetrics"
+              class="refresh-metrics-btn">
+        <span *ngIf="!isLoadingMetrics">🔄 Atualizar</span>
+        <span *ngIf="isLoadingMetrics">⏳ Carregando...</span>
+      </button>
+    </div>
+
+    <!-- Loading para métricas -->
+    <div class="loading-container" *ngIf="isLoadingMetrics && !systemMetrics">
+      <app-loading context="metrics"></app-loading>
+    </div>
+
+    <!-- Conteúdo das métricas -->
+    <div *ngIf="systemMetrics" class="metrics-content">
+
+    <!-- System Health Indicators -->
+    <div class="system-health">
+      <h3>🩺 Saúde do Sistema</h3>
+      <div class="health-indicators">
+        <div class="health-item">
+          <span class="health-label">{{ getSystemHealthText('tmDatabase', systemMetrics.systemHealth.tmDatabase) }}</span>
+          <div class="health-status" [style.background-color]="getSystemHealthColor(systemMetrics.systemHealth.tmDatabase)">
+            {{ systemMetrics.translationMemory.totalEntries }} entradas
+          </div>
+        </div>
+        <div class="health-item">
+          <span class="health-label">{{ getSystemHealthText('dictionary', systemMetrics.systemHealth.dictionary) }}</span>
+          <div class="health-status" [style.background-color]="getSystemHealthColor(systemMetrics.systemHealth.dictionary)">
+            {{ systemMetrics.dictionary.totalPhrases }} frases
+          </div>
+        </div>
+        <div class="health-item">
+          <span class="health-label">{{ getSystemHealthText('trainingData', systemMetrics.systemHealth.trainingData) }}</span>
+          <div class="health-status" [style.background-color]="getSystemHealthColor(systemMetrics.systemHealth.trainingData)">
+            {{ systemMetrics.training.totalSessions }} sessões
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Performance Stats -->
+    <div class="performance-stats" *ngIf="systemMetrics.performance.averageTranslationMethods">
+      <h3>⚡ Performance Atual</h3>
+      <div class="perf-grid">
+        <div class="perf-item tm">
+          <div class="perf-label">Translation Memory</div>
+          <div class="perf-value">{{ systemMetrics.performance.averageTranslationMethods.tmHitRate }}</div>
+        </div>
+        <div class="perf-item dict">
+          <div class="perf-label">Dicionário</div>
+          <div class="perf-value">{{ systemMetrics.performance.averageTranslationMethods.dictHitRate }}</div>
+        </div>
+        <div class="perf-item api">
+          <div class="perf-label">API Externa</div>
+          <div class="perf-value">{{ systemMetrics.performance.averageTranslationMethods.apiUsageRate }}</div>
+        </div>
+        <div class="perf-item skip">
+          <div class="perf-label">Não Traduzido</div>
+          <div class="perf-value">{{ systemMetrics.performance.averageTranslationMethods.skipRate }}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Training Impact -->
+    <div class="training-impact" *ngIf="systemMetrics.training.totalSessions > 0">
+      <h3>🎯 Impacto do Treinamento</h3>
+      <div class="impact-stats">
+        <div class="impact-item">
+          <span class="impact-number">{{ systemMetrics.training.totalFilesProcessed }}</span>
+          <span class="impact-label">Arquivos Processados</span>
+        </div>
+        <div class="impact-item">
+          <span class="impact-number">{{ systemMetrics.training.totalPhrasesLearned }}</span>
+          <span class="impact-label">Frases Aprendidas</span>
+        </div>
+        <div class="impact-item">
+          <span class="impact-number">{{ systemMetrics.translationMemory.recentEntries }}</span>
+          <span class="impact-label">Entradas Recentes</span>
+        </div>
+      </div>
+      
+      <div class="last-training" *ngIf="systemMetrics.training.lastTrainingDate">
+        <span class="last-training-label">Último treinamento:</span>
+        <span class="last-training-date">{{ systemMetrics.training.lastTrainingDate | date:'dd/MM/yyyy HH:mm' }}</span>
+      </div>
+    </div>
+
+    <!-- Recommendations -->
+    <div class="recommendations" *ngIf="systemMetrics.recommendations?.length > 0">
+      <h3>💡 Recomendações</h3>
+      <div class="recommendation-list">
+        <div *ngFor="let rec of systemMetrics.recommendations" class="recommendation-item">
+          {{ rec }}
+        </div>
+      </div>
+    </div>
+
+    </div> <!-- Fechamento da div metrics-content -->
+
+    <!-- Mensagem quando não há métricas -->
+    <div *ngIf="!systemMetrics && !isLoadingMetrics" class="no-metrics">
+      <p>📊 Nenhuma métrica disponível. Clique em "Atualizar" para carregar.</p>
+    </div>
+  </div>
+
+  <!-- Massive Training Progress Section -->
+  <div class="section massive-training-section" *ngIf="isMassiveTrainingActive()">
+    <h2>🚀 Treinamento Massivo em Andamento</h2>
+    <div class="massive-training-card">
+      <div class="massive-progress-header">
+        <h3>Processando {{ massiveTrainingStats.totalSessions }} sessões de treinamento</h3>
+        <p>Seus 2515 arquivos estão sendo processados simultaneamente para máximo aprendizado!</p>
+      </div>
+
+      <div class="massive-progress-container">
+        <div class="massive-info">
+          <span class="massive-label">Progresso Estimado:</span>
+          <span class="massive-value">{{ getMassiveTrainingProgress() }}%</span>
+        </div>
+        
+        <div class="progress-bar-container">
+          <div class="progress-bar massive-progress" [style.width.%]="getMassiveTrainingProgress()"></div>
+        </div>
+        
+        <div class="massive-stats">
+          <div class="stat">
+            <span class="stat-label">Sessões Completas:</span>
+            <span class="stat-value">{{ massiveTrainingStats.completedSessions }}/{{ massiveTrainingStats.totalSessions }}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Status:</span>
+            <span class="stat-value">🧠 Aprendendo...</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="massive-info-text">
+        <p>🎯 O sistema está processando seus arquivos em paralelo para máxima eficiência.</p>
+        <p>💡 Cada arquivo contribui com centenas de novas frases para melhorar as traduções futuras.</p>
+        <p>📊 As métricas do sistema serão atualizadas automaticamente quando o treinamento for concluído.</p>
+      </div>
+    </div>
+  </div>
+
   <!-- File Selection Section -->
-  <div class="section" *ngIf="!currentSession">
+  <div class="section" *ngIf="!currentSession && !isMassiveTrainingActive()">
     <h2>📁 Seleção de Arquivos</h2>
     <div class="file-input-area">
       <input type="file" 
@@ -40,6 +189,44 @@
           <span *ngIf="!isUploading">🚀 Iniciar Treino</span>
           <span *ngIf="isUploading">⏳ Enviando...</span>
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Batch Upload Progress Section -->
+  <div class="section" *ngIf="isBatchUploading()">
+    <h2>📦 Upload em Lotes</h2>
+    <div class="batch-upload-card">
+      <div class="batch-progress-header">
+        <h3>Enviando arquivos automaticamente em lotes</h3>
+        <p>O sistema detectou muitos arquivos e está dividindo em lotes menores para melhor performance</p>
+      </div>
+
+      <div class="batch-progress-container">
+        <div class="batch-info">
+          <span class="batch-label">Lote Atual:</span>
+          <span class="batch-value">{{ batchUploadProgress.currentBatch }}/{{ batchUploadProgress.totalBatches }}</span>
+        </div>
+        
+        <div class="progress-bar-container">
+          <div class="progress-bar batch-progress" [style.width.%]="getBatchUploadProgress()"></div>
+        </div>
+        
+        <div class="batch-stats">
+          <div class="stat">
+            <span class="stat-label">Arquivos Enviados:</span>
+            <span class="stat-value">{{ batchUploadProgress.current }}/{{ batchUploadProgress.total }}</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">Progresso:</span>
+            <span class="stat-value">{{ getBatchUploadProgress() }}%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="batch-info-text">
+        <p>⏱️ Upload inteligente em andamento... Por favor aguarde.</p>
+        <p>💡 Lotes maiores são automaticamente divididos para evitar timeouts e garantir melhor taxa de sucesso.</p>
       </div>
     </div>
   </div>
@@ -125,19 +312,25 @@
       </div>
 
       <div class="actions" *ngIf="currentSession.status === 'completed'">
-        <button (click)="analyzeResults()" 
-                [disabled]="isAnalyzing"
-                class="analyze-btn">
-          <span *ngIf="!isAnalyzing">🔍 Analisar Resultados</span>
-          <span *ngIf="isAnalyzing">⏳ Analisando...</span>
-        </button>
+        <div class="analyze-section">
+          <button (click)="analyzeResults()" 
+                  [disabled]="isAnalyzing"
+                  class="analyze-btn">
+            <span *ngIf="!isAnalyzing">🔍 Analisar Resultados</span>
+            <span *ngIf="isAnalyzing">⏳ Analisando...</span>
+          </button>
+          <app-loading context="analysis" *ngIf="isAnalyzing"></app-loading>
+        </div>
         
-        <button (click)="improveDictionary(true)" 
-                [disabled]="isImprovingDict"
-                class="auto-improve-btn">
-          <span *ngIf="!isImprovingDict">⚡ Auto-melhorar</span>
-          <span *ngIf="isImprovingDict">⏳ Aplicando...</span>
-        </button>
+        <div class="improve-section">
+          <button (click)="improveDictionary(true)" 
+                  [disabled]="isImprovingDict"
+                  class="auto-improve-btn">
+            <span *ngIf="!isImprovingDict">⚡ Auto-melhorar</span>
+            <span *ngIf="isImprovingDict">⏳ Aplicando...</span>
+          </button>
+          <app-loading context="dictionary" *ngIf="isImprovingDict"></app-loading>
+        </div>
       </div>
     </div>
   </div>
@@ -223,12 +416,15 @@
       </div>
 
       <div class="apply-section" *ngIf="selectedPhrases.length > 0">
-        <button (click)="improveDictionary(false)" 
-                [disabled]="isImprovingDict"
-                class="apply-btn">
-          <span *ngIf="!isImprovingDict">✅ Aplicar Selecionadas ({{ selectedPhrases.length }})</span>
-          <span *ngIf="isImprovingDict">⏳ Aplicando...</span>
-        </button>
+        <div class="apply-container">
+          <button (click)="improveDictionary(false)" 
+                  [disabled]="isImprovingDict"
+                  class="apply-btn">
+            <span *ngIf="!isImprovingDict">✅ Aplicar Selecionadas ({{ selectedPhrases.length }})</span>
+            <span *ngIf="isImprovingDict">⏳ Aplicando...</span>
+          </button>
+          <app-loading context="dictionary" *ngIf="isImprovingDict"></app-loading>
+        </div>
       </div>
     </div>
   </div>
