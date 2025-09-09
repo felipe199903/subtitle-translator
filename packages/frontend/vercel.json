@@ -1,19 +1,12 @@
 {
-  "version": 2,
-  "name": "subtitle-translator",
-  "builds": [
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist/frontend/browser",
+  "installCommand": "npm install",
+  "framework": null,
+  "rewrites": [
     {
-      "src": "dist/frontend/**",
-      "use": "@vercel/static"
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
-    }
-  ],
-  "env": {
-    "NODE_ENV": "production"
-  }
+  ]
 }
