@@ -21,9 +21,8 @@
   Name: subtitle-translator-api
   Branch: main
   Root Directory: packages/backend  
-  Runtime: Node
-  Build Command: npm run build
-  Start Command: npm start
+  Runtime: Docker
+  Dockerfile Path: render.dockerfile
   ```
 - [ ] 6. Adicione variáveis de ambiente:
   ```
