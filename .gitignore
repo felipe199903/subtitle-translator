@@ -1,1 +1,21 @@
 node_modules
+
+# Pasta de arquivos temporários
+temp/*
+!temp/README.md
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Database arquivos temporários
+*.db-journal
+
+# VS Code settings específicos do usuário
+.vscode/settings.json
+
+# Arquivos de backup
+*.bak
+*~

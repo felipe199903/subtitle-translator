@@ -33,4 +33,5 @@ app.listen(PORT, () => {
     console.log(`📝 API Documentation: http://localhost:${PORT}/api/subtitles`);
 });
 exports.default = app;
+// restart
 //# sourceMappingURL=index.js.map

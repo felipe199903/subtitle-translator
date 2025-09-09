@@ -410,7 +410,10 @@ export class SubtitleController {
       const files = req.files as Express.Multer.File[];
       
       if (!files || files.length === 0) {
-        res.status(400).json({ error: 'No files uploaded' });
+        res.status(400).json({ 
+          error: 'No files uploaded',
+          suggestion: 'Please select at least one .srt file'
+        });
         return;
       }
 
@@ -447,15 +450,47 @@ export class SubtitleController {
         data: {
           sessionId,
           totalFiles: files.length,
-          message: 'Training started. Use the session ID to check progress.'
+          message: 'Training started. Use the session ID to check progress.',
+          batchInfo: {
+            maxFilesPerBatch: 150,
+            currentBatch: files.length,
+            recommendedBatchSize: files.length > 100 ? 50 : files.length
+          }
         }
       });
 
     } catch (error) {
       console.error('❌ Error starting training batch:', error);
+      
+      // Handle specific multer errors
+      if (error instanceof Error) {
+        if (error.message.includes('Too many files') || error.message.includes('LIMIT_FILE_COUNT')) {
+          res.status(400).json({ 
+            error: 'Too many files in single batch',
+            details: error.message,
+            suggestion: 'Please upload files in smaller batches (max 150 files per batch). The frontend will automatically handle this.',
+            maxFilesAllowed: 150,
+            errorCode: 'LIMIT_FILE_COUNT'
+          });
+          return;
+        }
+        
+        if (error.message.includes('File too large') || error.message.includes('LIMIT_FILE_SIZE')) {
+          res.status(400).json({ 
+            error: 'One or more files are too large',
+            details: error.message,
+            suggestion: 'Please ensure each file is smaller than 50MB',
+            maxFileSize: '50MB',
+            errorCode: 'LIMIT_FILE_SIZE'
+          });
+          return;
+        }
+      }
+      
       res.status(500).json({ 
         error: 'Failed to start training batch',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        details: error instanceof Error ? error.message : 'Unknown error',
+        suggestion: 'Please try again with fewer files or check the file formats'
       });
     }
   };
@@ -538,6 +573,20 @@ export class SubtitleController {
     session.endTime = new Date();
     
     console.log(`🎉 Training session ${sessionId} completed! Processed ${session.processedFiles}/${session.totalFiles} files`);
+
+    // Auto-apply learned phrases to improve system
+    try {
+      console.log(`🤖 Auto-applying learned phrases from training session ${sessionId}...`);
+      console.log(`📋 Session has ${session.results.length} files processed`);
+      const totalPhrases = session.results.reduce((sum, r) => sum + r.uniquePhrases.length, 0);
+      console.log(`📋 Total unique phrases collected: ${totalPhrases}`);
+      
+      await this.autoApplyLearnedPhrases(session);
+      console.log(`✅ Auto-application process completed for session ${sessionId}`);
+    } catch (error) {
+      console.error(`⚠️ Error auto-applying learned phrases for session ${sessionId}:`, error);
+      console.error(`Stack trace:`, error instanceof Error ? error.stack : 'No stack trace');
+    }
   }
 
   getTrainingStatus = async (req: Request, res: Response): Promise<void> => {
@@ -570,6 +619,7 @@ export class SubtitleController {
           apiTranslations: acc.apiTranslations + r.translationStats.apiTranslations,
           skipped: acc.skipped + r.translationStats.skipped
         }), { tmHits: 0, dictHits: 0, apiTranslations: 0, skipped: 0 }),
+        autoApplicationResults: (session as any).autoApplicationResults || null,
         error: session.error
       };
 
@@ -774,8 +824,528 @@ export class SubtitleController {
       const dictPath = path.resolve(__dirname, '../dict.json');
       fs.writeFileSync(dictPath, JSON.stringify(this.dict, null, 2), 'utf8');
       console.log(`💾 Dictionary saved with ${Object.keys(this.dict).length} entries`);
+      
+      // Force reload resources after saving to ensure they're available immediately
+      this.loadResources();
+      console.log(`🔄 Resources reloaded after dictionary update`);
     } catch (error) {
       console.error('❌ Failed to save dictionary:', error);
     }
   }
+
+  /**
+   * Force reload all translation resources (dict, glossary, TM)
+   * Call this after making changes to ensure they're applied immediately
+   */
+  public async reloadAllResources(): Promise<void> {
+    console.log('🔄 Reloading all translation resources...');
+    
+    // Reload dictionary and glossary
+    this.loadResources();
+    
+    // Rebuild TM index
+    await this.buildTmIndex();
+    
+    console.log(`✅ All resources reloaded: Dictionary=${Object.keys(this.dict).length}, TM=${this.tmIndex.length}`);
+  }
+
+  /**
+   * Automatically apply high-confidence learned phrases from a training session
+   */
+  private async autoApplyLearnedPhrases(session: TrainingSession): Promise<void> {
+    console.log(`🧠 Analyzing ${session.results.length} files for auto-application...`);
+
+    // Collect all unique phrases from the session
+    const allUniquePhrases = session.results.flatMap(r => r.uniquePhrases);
+    console.log(`📊 Total unique phrases found: ${allUniquePhrases.length}`);
+
+    if (allUniquePhrases.length === 0) {
+      console.log('ℹ️ No new phrases to apply');
+      return;
+    }
+
+    // Analyze phrase frequency across files
+    const phraseFrequency: Record<string, { 
+      count: number; 
+      translations: string[]; 
+      files: string[];
+      consistency: number;
+    }> = {};
+    
+    allUniquePhrases.forEach(phrase => {
+      const key = phrase.original.toLowerCase().trim();
+      if (!phraseFrequency[key]) {
+        phraseFrequency[key] = { count: 0, translations: [], files: [], consistency: 0 };
+      }
+      phraseFrequency[key].count++;
+      
+      if (!phraseFrequency[key].translations.includes(phrase.translated)) {
+        phraseFrequency[key].translations.push(phrase.translated);
+      }
+    });
+
+    // Calculate consistency score for each phrase
+    Object.keys(phraseFrequency).forEach(key => {
+      const data = phraseFrequency[key];
+      data.consistency = data.count / data.translations.length; // Higher = more consistent
+    });
+
+    // Auto-apply high-confidence phrases (relaxed criteria for better learning)
+    const AUTO_APPLY_THRESHOLD = {
+      minFrequency: 1,           // Appeared at least 1 time (relaxed)
+      minConsistency: 1.0,       // Perfect consistency (relaxed)
+      minLength: 3,              // At least 3 characters
+      maxLength: 100             // Not too long
+    };
+
+    let addedToDict = 0;
+    let addedToTM = 0;
+    let skippedCount = 0;
+
+    console.log(`🎯 Applying relaxed auto-selection criteria: freq≥${AUTO_APPLY_THRESHOLD.minFrequency}, consistency≥${AUTO_APPLY_THRESHOLD.minConsistency}, length 3-100 chars`);
+    console.log(`📊 Total candidates to analyze: ${Object.keys(phraseFrequency).length}`);
+
+    for (const [original, data] of Object.entries(phraseFrequency)) {
+      // Check if phrase meets auto-apply criteria
+      if (data.count >= AUTO_APPLY_THRESHOLD.minFrequency &&
+          data.consistency >= AUTO_APPLY_THRESHOLD.minConsistency &&
+          original.length >= AUTO_APPLY_THRESHOLD.minLength &&
+          original.length <= AUTO_APPLY_THRESHOLD.maxLength) {
+        
+        // Use the most common translation
+        const mostCommonTranslation = data.translations[0]; // First one is most common in simple cases
+        
+        try {
+          // Add to dictionary
+          this.dict[original.toLowerCase()] = mostCommonTranslation;
+          addedToDict++;
+
+          // Add to Translation Memory
+          await upsertTM(original, mostCommonTranslation);
+          addedToTM++;
+
+          console.log(`✅ Auto-applied: "${original}" → "${mostCommonTranslation}" (freq: ${data.count}, consistency: ${data.consistency.toFixed(1)})`);
+
+        } catch (error) {
+          console.warn(`⚠️ Failed to auto-apply "${original}":`, error);
+        }
+      } else {
+        // Log why it wasn't auto-applied for debugging
+        const reasons: string[] = [];
+        if (data.count < AUTO_APPLY_THRESHOLD.minFrequency) reasons.push(`low frequency (${data.count})`);
+        if (data.consistency < AUTO_APPLY_THRESHOLD.minConsistency) reasons.push(`low consistency (${data.consistency.toFixed(1)})`);
+        if (original.length < AUTO_APPLY_THRESHOLD.minLength) reasons.push('too short');
+        if (original.length > AUTO_APPLY_THRESHOLD.maxLength) reasons.push('too long');
+        
+        skippedCount++;
+        
+        // Only log first 10 skipped phrases to avoid spam
+        if (skippedCount <= 10 && reasons.length > 0) {
+          console.log(`⏭️ Skipped "${original}": ${reasons.join(', ')}`);
+        }
+      }
+    }
+
+    // Save updated dictionary and rebuild TM index
+    if (addedToDict > 0 || addedToTM > 0) {
+      await this.saveDictionary();
+      await this.buildTmIndex();
+      
+      // Force a complete resource reload to ensure all changes are active
+      console.log('🔧 Forcing complete resource reload...');
+      await this.reloadAllResources();
+      
+      console.log(`🎉 Auto-application completed! Added ${addedToDict} phrases to dictionary, ${addedToTM} to TM`);
+      console.log(`📈 New system size: Dictionary=${Object.keys(this.dict).length}, TM=${this.tmIndex.length}`);
+      console.log(`✅ Resources reloaded and ready for immediate use`);
+    } else {
+      console.log(`ℹ️ No phrases met the auto-application criteria out of ${Object.keys(phraseFrequency).length} candidates`);
+      console.log(`📊 Summary: ${skippedCount} skipped, ${addedToDict} applied to dictionary, ${addedToTM} applied to TM`);
+    }
+
+    // Update session with application results
+    (session as any).autoApplicationResults = {
+      candidatePhrases: Object.keys(phraseFrequency).length,
+      appliedPhrases: addedToDict,
+      dictionarySize: Object.keys(this.dict).length,
+      tmSize: this.tmIndex.length,
+      timestamp: new Date()
+    };
+  }
+
+  // System metrics and training impact analysis
+  getSystemMetrics = async (req: Request, res: Response): Promise<void> => {
+    try {
+      console.log('📊 Generating system metrics...');
+
+      // Get Translation Memory statistics
+      const allTM = await getAllTM();
+      const tmStats = {
+        totalEntries: allTM.length,
+        recentEntries: allTM.filter((entry: any) => {
+          // Entries added in the last 24 hours (approximate)
+          return entry.count === 1; // New entries typically have count = 1
+        }).length,
+        highConfidenceEntries: allTM.filter((entry: any) => entry.count > 2).length
+      };
+
+      // Dictionary statistics
+      const dictStats = {
+        totalPhrases: Object.keys(this.dict).length,
+        phrasesByLength: {
+          single: Object.keys(this.dict).filter(k => k.split(' ').length === 1).length,
+          multi: Object.keys(this.dict).filter(k => k.split(' ').length > 1).length
+        }
+      };
+
+      // Training sessions summary
+      const completedSessions = Array.from(this.trainingSessions.values())
+        .filter(session => session.status === 'completed');
+      
+      const trainingStats = {
+        totalSessions: completedSessions.length,
+        totalFilesProcessed: completedSessions.reduce((sum, s) => sum + s.totalFiles, 0),
+        totalPhrasesLearned: completedSessions.reduce((sum, s) => 
+          sum + s.results.reduce((rSum, r) => rSum + r.uniquePhrases.length, 0), 0),
+        lastTrainingDate: completedSessions.length > 0 
+          ? completedSessions[completedSessions.length - 1].endTime 
+          : null
+      };
+
+      // Performance indicators
+      const performanceStats = {
+        tmIndexSize: this.tmIndex.length,
+        averageTranslationMethods: this.calculateAverageTranslationMethods(completedSessions)
+      };
+
+      // System health indicators
+      const systemHealth = {
+        tmDatabase: allTM.length > 0 ? 'healthy' : 'needs_data',
+        dictionary: Object.keys(this.dict).length > 100 ? 'healthy' : 'needs_expansion',
+        trainingData: completedSessions.length > 0 ? 'trained' : 'not_trained'
+      };
+
+      res.json({
+        success: true,
+        data: {
+          timestamp: new Date().toISOString(),
+          translationMemory: tmStats,
+          dictionary: dictStats,
+          training: trainingStats,
+          performance: performanceStats,
+          systemHealth,
+          recommendations: this.generateSystemRecommendations(tmStats, dictStats, trainingStats)
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Error getting system metrics:', error);
+      res.status(500).json({ 
+        error: 'Failed to get system metrics',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  };
+
+  private calculateAverageTranslationMethods(sessions: TrainingSession[]) {
+    if (sessions.length === 0) return null;
+
+    const totals = sessions.reduce((acc, session) => {
+      session.results.forEach(result => {
+        acc.tmHits += result.translationStats.tmHits;
+        acc.dictHits += result.translationStats.dictHits;
+        acc.apiTranslations += result.translationStats.apiTranslations;
+        acc.skipped += result.translationStats.skipped;
+        acc.total += result.totalSubtitles;
+      });
+      return acc;
+    }, { tmHits: 0, dictHits: 0, apiTranslations: 0, skipped: 0, total: 0 });
+
+    const performanceData = {
+      tmHitRate: totals.total > 0 ? (totals.tmHits / totals.total * 100).toFixed(1) + '%' : '0%',
+      dictHitRate: totals.total > 0 ? (totals.dictHits / totals.total * 100).toFixed(1) + '%' : '0%',
+      apiUsageRate: totals.total > 0 ? (totals.apiTranslations / totals.total * 100).toFixed(1) + '%' : '0%',
+      skipRate: totals.total > 0 ? (totals.skipped / totals.total * 100).toFixed(1) + '%' : '0%',
+      totalProcessed: totals.total,
+      lastUpdated: new Date().toISOString()
+    };
+
+    return performanceData;
+  }
+
+  private generateSystemRecommendations(tmStats: any, dictStats: any, trainingStats: any): string[] {
+    const recommendations: string[] = [];
+
+    // Check if recent training sessions applied phrases automatically
+    const recentSessions = Array.from(this.trainingSessions.values())
+      .filter(s => s.status === 'completed' && s.endTime)
+      .sort((a, b) => (b.endTime?.getTime() || 0) - (a.endTime?.getTime() || 0));
+    
+    const lastSession = recentSessions[0];
+    const autoApplicationResults = lastSession ? (lastSession as any).autoApplicationResults : null;
+
+    if (autoApplicationResults) {
+      if (autoApplicationResults.appliedPhrases > 0) {
+        recommendations.push(`🎉 Latest training automatically applied ${autoApplicationResults.appliedPhrases} new phrases to improve translation quality!`);
+      } else {
+        recommendations.push(`⚠️ Latest training found ${autoApplicationResults.candidatePhrases} candidate phrases but none met auto-application criteria. Consider manual review.`);
+      }
+    }
+
+    if (tmStats.totalEntries < 500) {
+      recommendations.push('💡 Consider running more training sessions to reach 500+ TM entries for better coverage');
+    }
+
+    if (dictStats.totalPhrases < 200) {
+      recommendations.push('📚 Dictionary needs expansion - upload more diverse content to reach 200+ phrases');
+    }
+
+    if (trainingStats.totalSessions === 0) {
+      recommendations.push('🚀 No training completed yet. Start with batch training to unlock automatic improvements');
+    }
+
+    if (trainingStats.totalSessions > 0 && trainingStats.totalPhrasesLearned > 100) {
+      recommendations.push(`📈 System learned ${trainingStats.totalPhrasesLearned} phrases from ${trainingStats.totalSessions} training sessions. Performance should be improving!`);
+    }
+
+    if (tmStats.totalEntries > 1000 && dictStats.totalPhrases > 500) {
+      recommendations.push('✅ System is well-trained! Expect high-quality translations for similar content types');
+    }
+
+    return recommendations;
+  }
+
+  // Massive training monitoring
+  getMassiveTrainingStats = async (req: Request, res: Response): Promise<void> => {
+    try {
+      console.log('📊 Getting massive training stats...');
+      
+      // Get all active sessions
+      const activeSessions = Array.from(this.trainingSessions.values())
+        .filter(session => session.status === 'processing');
+      
+      // Get completed sessions from last batch
+      const recentCompleted = Array.from(this.trainingSessions.values())
+        .filter(session => session.status === 'completed')
+        .sort((a, b) => (b.endTime?.getTime() || 0) - (a.endTime?.getTime() || 0))
+        .slice(0, 10); // Last 10 completed sessions
+      
+      // Calculate progress across all active sessions
+      const totalFiles = activeSessions.reduce((sum, session) => sum + session.totalFiles, 0);
+      const processedFiles = activeSessions.reduce((sum, session) => sum + session.processedFiles, 0);
+      const overallProgress = totalFiles > 0 ? Math.round((processedFiles / totalFiles) * 100) : 0;
+      
+      // Calculate learning statistics from recent sessions
+      let totalNewPhrases = 0;
+      let totalProcessedSubtitles = 0;
+      let totalApiTranslations = 0;
+      
+      recentCompleted.forEach(session => {
+        session.results.forEach(result => {
+          totalNewPhrases += result.uniquePhrases.length;
+          totalProcessedSubtitles += result.totalSubtitles;
+          totalApiTranslations += result.translationStats.apiTranslations;
+        });
+      });
+      
+      // Estimate completion time (rough calculation based on current progress)
+      let estimatedCompletion: Date | null = null;
+      if (activeSessions.length > 0 && totalFiles > processedFiles) {
+        const avgSessionStartTime = activeSessions.reduce((sum, s) => sum + s.startTime.getTime(), 0) / activeSessions.length;
+        const elapsedMinutes = (Date.now() - avgSessionStartTime) / (1000 * 60);
+        const progressRate = processedFiles / elapsedMinutes;
+        const remainingFiles = totalFiles - processedFiles;
+        const estimatedRemainingMinutes = remainingFiles / progressRate;
+        estimatedCompletion = new Date(Date.now() + estimatedRemainingMinutes * 60 * 1000);
+      }
+      
+      const stats = {
+        activeSessions: {
+          count: activeSessions.length,
+          totalFiles,
+          processedFiles,
+          overallProgress,
+          estimatedCompletion
+        },
+        recentLearning: {
+          phrasesLearned: totalNewPhrases,
+          subtitlesProcessed: totalProcessedSubtitles,
+          apiCallsMade: totalApiTranslations,
+          completedSessions: recentCompleted.length
+        },
+        systemStatus: {
+          tmEntriesCount: this.tmIndex.length,
+          dictionarySize: Object.keys(this.dict).length,
+          isLearning: activeSessions.length > 0,
+          lastUpdate: new Date()
+        }
+      };
+      
+      res.json({
+        success: true,
+        data: stats,
+        timestamp: new Date().toISOString()
+      });
+      
+    } catch (error) {
+      console.error('❌ Error getting massive training stats:', error);
+      res.status(500).json({ 
+        error: 'Failed to get massive training stats',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  };
+
+  // Training impact comparison
+  compareTrainingImpact = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { beforeSessionId, afterSessionId } = req.body;
+
+      if (!beforeSessionId || !afterSessionId) {
+        res.status(400).json({ 
+          error: 'Both beforeSessionId and afterSessionId are required' 
+        });
+        return;
+      }
+
+      const beforeSession = this.trainingSessions.get(beforeSessionId);
+      const afterSession = this.trainingSessions.get(afterSessionId);
+
+      if (!beforeSession || !afterSession) {
+        res.status(404).json({ 
+          error: 'One or both training sessions not found' 
+        });
+        return;
+      }
+
+      // Calculate improvement metrics
+      const beforeStats = this.calculateSessionStats(beforeSession);
+      const afterStats = this.calculateSessionStats(afterSession);
+
+      const improvement = {
+        tmHitRateImprovement: afterStats.tmHitRate - beforeStats.tmHitRate,
+        dictHitRateImprovement: afterStats.dictHitRate - beforeStats.dictHitRate,
+        apiUsageReduction: beforeStats.apiUsageRate - afterStats.apiUsageRate,
+        overallImprovement: (afterStats.tmHitRate + afterStats.dictHitRate) - 
+                           (beforeStats.tmHitRate + beforeStats.dictHitRate)
+      };
+
+      res.json({
+        success: true,
+        data: {
+          before: beforeStats,
+          after: afterStats,
+          improvement,
+          summary: this.generateImprovementSummary(improvement)
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Error comparing training impact:', error);
+      res.status(500).json({ 
+        error: 'Failed to compare training impact',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  };
+
+  private calculateSessionStats(session: TrainingSession) {
+    const totals = session.results.reduce((acc, result) => {
+      acc.tmHits += result.translationStats.tmHits;
+      acc.dictHits += result.translationStats.dictHits;
+      acc.apiTranslations += result.translationStats.apiTranslations;
+      acc.skipped += result.translationStats.skipped;
+      acc.total += result.totalSubtitles;
+      return acc;
+    }, { tmHits: 0, dictHits: 0, apiTranslations: 0, skipped: 0, total: 0 });
+
+    return {
+      totalSubtitles: totals.total,
+      tmHitRate: totals.total > 0 ? (totals.tmHits / totals.total * 100) : 0,
+      dictHitRate: totals.total > 0 ? (totals.dictHits / totals.total * 100) : 0,
+      apiUsageRate: totals.total > 0 ? (totals.apiTranslations / totals.total * 100) : 0,
+      skipRate: totals.total > 0 ? (totals.skipped / totals.total * 100) : 0
+    };
+  }
+
+  private generateImprovementSummary(improvement: any): string {
+    if (improvement.overallImprovement > 10) {
+      return 'Excellent improvement! Training significantly enhanced translation quality.';
+    } else if (improvement.overallImprovement > 5) {
+      return 'Good improvement! System learned new patterns effectively.';
+    } else if (improvement.overallImprovement > 0) {
+      return 'Modest improvement detected. Consider more diverse training data.';
+    } else {
+      return 'No significant improvement. Try training with different types of content.';
+    }
+  }
+
+  // Resource management endpoints
+  reloadResources = async (req: Request, res: Response): Promise<void> => {
+    try {
+      console.log('🔄 Manual resource reload requested...');
+      await this.reloadAllResources();
+      
+      res.json({
+        success: true,
+        data: {
+          message: 'All resources reloaded successfully',
+          dictionarySize: Object.keys(this.dict).length,
+          tmSize: this.tmIndex.length,
+          glossarySize: this.glossary.length,
+          timestamp: new Date().toISOString()
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Error reloading resources:', error);
+      res.status(500).json({ 
+        error: 'Failed to reload resources',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  };
+
+  testTranslation = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { text = "Hello world", targetLanguage = "pt-BR" } = req.query as any;
+      
+      console.log(`🧪 Testing translation for: "${text}"`);
+      
+      // Test all translation methods
+      const tmResult = await this.queryTM(text);
+      const dictResult = this.queryDict(text);
+      const glossaryApplied = this.applyGlossary(text);
+      
+      // Test the full translation pipeline
+      const fullTranslation = await this.translateWithTM([text]);
+      
+      res.json({
+        success: true,
+        data: {
+          originalText: text,
+          targetLanguage,
+          testResults: {
+            tmQuery: tmResult,
+            dictQuery: dictResult, 
+            glossaryApplied,
+            fullPipeline: fullTranslation[0],
+            systemStatus: {
+              dictionarySize: Object.keys(this.dict).length,
+              tmSize: this.tmIndex.length,
+              glossarySize: this.glossary.length
+            }
+          },
+          timestamp: new Date().toISOString()
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Error testing translation:', error);
+      res.status(500).json({ 
+        error: 'Failed to test translation',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  };
 }
