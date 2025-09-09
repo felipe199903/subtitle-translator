@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 export interface SubtitleItem {
   index: number;
@@ -32,7 +33,7 @@ export interface TranslationResponse {
   providedIn: 'root'
 })
 export class SubtitleService {
-  private apiUrl = 'http://localhost:3001/api/subtitles';
+  private apiUrl = environment.apiUrl;
 
   constructor(private http: HttpClient) { }
 

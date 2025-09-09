@@ -13,6 +13,7 @@ import { NotificationService } from '../services/notification.service';
 import { LoadingService } from '../services/loading.service';
 import { LoadingComponent } from '../components/loading/loading.component';
 import { interval, Subscription } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 interface TrainingSession {
   sessionId: string;
@@ -729,7 +730,7 @@ export class TrainingComponent implements OnInit, OnDestroy {
 
     for (const sessionId of sampleSessions) {
       try {
-        const response = await fetch(`http://localhost:3001/api/subtitles/training-status/${sessionId}`);
+        const response = await fetch(`${environment.apiUrl}/training-status/${sessionId}`);
         const result = await response.json();
         
         if (result.success) {
