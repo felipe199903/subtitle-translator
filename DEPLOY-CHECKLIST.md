@@ -38,10 +38,11 @@
 - [ ] 2. Login com GitHub
 - [ ] 3. **New Project** → **Import Git Repository**
 - [ ] 4. Configure:
-  - Framework: **Angular**
+  - Framework: **Other**
   - Root Directory: `packages/frontend`
   - Build Command: `npm run build`
-  - Output Directory: `dist/frontend`
+  - Output Directory: `dist/frontend/browser`
+  - Install Command: `npm install`
 - [ ] 5. **Deploy!**
 - [ ] 6. **Anote a URL** Vercel (ex: `app.vercel.app`)
 
@@ -63,10 +64,18 @@
 - [ ] 4. Aguarde redeploys automáticos (~2min)
 
 #### ✅ **TESTE FINAL**
-- [ ] Acesse sua URL Vercel
-- [ ] Teste upload de arquivo
-- [ ] Verifique se não há erros de CORS
-- [ ] Teste tradução completa
+- [ ] **Teste Backend:**
+  ```bash
+  # Windows
+  test-backend.bat https://sua-url.onrender.com
+  
+  # Ou manualmente:
+  # 1. Acesse: https://sua-url.onrender.com/health
+  # 2. Deve retornar: {"status":"ok","service":"subtitle-translator"}
+  ```
+- [ ] **Teste Frontend:** Acesse sua URL Vercel
+- [ ] **Teste Integração:** Upload de arquivo + tradução
+- [ ] **Verificar CORS:** Sem erros no console do browser
 
 ---
 
