@@ -60,7 +60,7 @@
   git commit -m "Configure Render API URL"
   git push origin main
   ```
-- [ ] 3. No Render, atualize `FRONTEND_URL` para sua URL Vercel
+- [ ] 3. No Render, atualize `FRONTEND_URL` para: `https://subtitle-translator-frontend.vercel.app`
 - [ ] 4. Aguarde redeploys automáticos (~2min)
 
 #### ✅ **TESTE FINAL**
