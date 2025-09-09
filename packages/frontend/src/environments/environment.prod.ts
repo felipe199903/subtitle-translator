@@ -1,4 +1,4 @@
 export const environment = {
   production: true,
-  apiUrl: 'https://seu-backend.railway.app/api/subtitles'
+  apiUrl: 'https://subtitle-translator-api-1282.onrender.com/api/subtitles'
 };
