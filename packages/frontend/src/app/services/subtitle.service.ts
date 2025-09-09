@@ -165,7 +165,7 @@ export interface TrainingComparisonResponse {
   providedIn: 'root'
 })
 export class SubtitleService {
-  private apiUrl = environment.apiUrl || 'http://localhost:3001/api/subtitles';
+  private apiUrl = environment.apiUrl;
 
   constructor(private http: HttpClient) {}
 

@@ -1,8 +1,11 @@
 {
-  "buildCommand": "npm run build",
+  "buildCommand": "npm run build -- --configuration=production",
   "outputDirectory": "dist/frontend/browser",
   "installCommand": "npm install",
   "framework": null,
+  "env": {
+    "NODE_ENV": "production"
+  },
   "rewrites": [
     {
       "source": "/(.*)",
