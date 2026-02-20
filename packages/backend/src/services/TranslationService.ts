@@ -1,3 +1,5 @@
+import axios from 'axios';
+
 export class TranslationService {
   // Intelligent translation dictionary with phrases and patterns
   private phrases: Record<string, string> = {
@@ -331,8 +333,39 @@ export class TranslationService {
       }
     }
 
+    // Try MyMemory API for better results (only for ENG -> PT-BR)
+    if (targetLanguage === 'pt-BR' || targetLanguage === 'pt') {
+      const apiResult = await this.translateWithMyMemory(text, targetLanguage);
+      if (apiResult) return apiResult;
+    }
+
     // If no phrase match, apply intelligent word-by-word translation
     return this.translateWordByWord(text);
+  }
+
+  async translateWithMyMemory(text: string, targetLanguage: string = 'pt-BR'): Promise<string | null> {
+    try {
+      const langpair = `en|${targetLanguage}`;
+      const url = `https://api.mymemory.translated.net/get`;
+      const response = await axios.get(url, {
+        params: { q: text, langpair },
+        timeout: 5000,
+      });
+      const data = response.data;
+      if (
+        data &&
+        data.responseStatus === 200 &&
+        data.responseData &&
+        data.responseData.translatedText &&
+        data.responseData.translatedText !== text
+      ) {
+        return data.responseData.translatedText;
+      }
+      return null;
+    } catch {
+      // API unavailable or rate limited - silently fall back to dictionary
+      return null;
+    }
   }
 
   private replacePreservingCase(originalText: string, searchPhrase: string, replacement: string): string {
@@ -345,8 +378,26 @@ export class TranslationService {
   }
 
   private translateWordByWord(text: string): string {
-    // Split text into words and punctuation
-    const tokens = text.split(/(\s+|[^\w\s])/);
+    // Split text into tokens preserving contractions (word'word), whitespace, and punctuation
+    const rawTokens = text.split(/(\s+|[^\w\s''])/);
+
+    // Recombine contraction tokens (word + apostrophe + word-part)
+    const tokens: string[] = [];
+    for (let i = 0; i < rawTokens.length; i++) {
+      const cur = rawTokens[i];
+      const next1 = rawTokens[i + 1];
+      const next2 = rawTokens[i + 2];
+      if (
+        cur && /^\w+$/.test(cur) &&
+        next1 && /^['']$/.test(next1) &&
+        next2 && /^\w+$/.test(next2)
+      ) {
+        tokens.push(cur + next1 + next2);
+        i += 2;
+      } else {
+        tokens.push(cur);
+      }
+    }
     
     const translatedTokens = tokens.map(token => {
       // Skip whitespace and punctuation
