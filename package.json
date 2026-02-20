@@ -18,7 +18,8 @@
     "build": "npm run build:frontend && npm run build:backend",
     "build:frontend": "cd packages/frontend && npm run build",
     "build:backend": "cd packages/backend && npm run build",
-    "start": "cd packages/backend && npm start"
+    "start": "cd packages/backend && npm start",
+    "test:backend": "npx jest --config packages/backend/jest.config.js"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
