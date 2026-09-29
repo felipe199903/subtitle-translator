@@ -13,10 +13,10 @@ process.env.FRONTEND_URL ??= 'http://localhost:4200';
 // Without DATABASE_URL, keep local data in an embedded Postgres folder (git-ignored).
 process.env.PGLITE_DIR ??= path.resolve(__dirname, '../.data/pglite');
 
-import('./app').then(({ createApp }) => {
+Promise.all([import('./app'), import('./db/client')]).then(([{ createApp }, { databaseUrl }]) => {
   const PORT = process.env.PORT || 3001;
   createApp().listen(PORT, () => {
-    const db = process.env.DATABASE_URL ? 'Neon Postgres (DATABASE_URL)' : 'PGlite local (packages/backend/.data)';
+    const db = databaseUrl() ? 'Neon Postgres' : 'PGlite local (packages/backend/.data)';
     console.log(`🚀 API em http://localhost:${PORT} · banco: ${db}`);
   });
 });

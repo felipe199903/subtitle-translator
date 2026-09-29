@@ -47,16 +47,17 @@ async function main() {
       const p = path.join(root, f);
       if (fs.existsSync(p)) process.loadEnvFile(p);
     }
-    if (!process.env.DATABASE_URL) fail('DATABASE_URL não encontrada em .env / .env.local.');
     const { createApp } = await import('../src/app');
-    const { getDb } = await import('../src/db/client');
+    const { getDb, databaseUrl } = await import('../src/db/client');
+    const url = databaseUrl();
+    if (!url) fail('DATABASE_URL não encontrada em .env / .env.local.');
     const app = createApp();
     server = await new Promise<Server>(resolve => {
       const s = app.listen(0, () => resolve(s));
     });
     const addr = server.address();
     base = `http://localhost:${typeof addr === 'object' && addr ? addr.port : 0}`;
-    step(`App local contra o Neon (${new URL(process.env.DATABASE_URL!).host})`);
+    step(`App local contra o Neon (${new URL(url!).host})`);
     cleanup = async id => {
       await getDb().query('DELETE FROM jobs WHERE id = $1', [id]);
     };

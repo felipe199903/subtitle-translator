@@ -25,7 +25,7 @@ describe('Vercel entry (api/index.ts)', () => {
     process.env.VERCEL = '1';
     try {
       const { getDb } = await import('./db/client');
-      await expect(getDb().query('SELECT 1')).rejects.toThrow(/Storage → Create Database/);
+      await expect(getDb().query('SELECT 1')).rejects.toThrow(/Storage/);
       // …and the health check reports it, so a fresh deploy can be verified at /api/health.
       const { createApp } = await import('./app');
       const res = await request(createApp()).get('/api/health').expect(503);

@@ -86,15 +86,33 @@ export function pgliteDb(dataDir?: string): Db {
 
 let defaultDb: Db | undefined;
 
-/** The app database: Neon when DATABASE_URL is set, otherwise an embedded PGlite. */
+/**
+ * Finds the Postgres URL. Vercel Storage names it DATABASE_URL by default, but a custom
+ * prefix gives e.g. STORAGE_DATABASE_URL, and some templates use POSTGRES_URL.
+ * Pooled URLs are preferred over the *_UNPOOLED / *_NON_POOLING variants.
+ */
+export function databaseUrl(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (env.DATABASE_URL) return env.DATABASE_URL;
+  if (env.POSTGRES_URL) return env.POSTGRES_URL;
+  const key = Object.keys(env)
+    .filter(k => /_(DATABASE|POSTGRES)_URL$/.test(k) && env[k])
+    .sort()[0];
+  return key ? env[key] : undefined;
+}
+
+/** The app database: Neon when a Postgres URL is set, otherwise an embedded PGlite. */
 export function getDb(): Db {
   if (defaultDb) return defaultDb;
-  if (process.env.DATABASE_URL) {
-    defaultDb = neonDb(process.env.DATABASE_URL);
+  const url = databaseUrl();
+  if (url) {
+    defaultDb = neonDb(url);
   } else if (process.env.VERCEL) {
     // Function disks are read-only and short-lived: a real database is required.
     const missing = async (): Promise<never> => {
-      throw new Error('DATABASE_URL não definida. Na Vercel, crie o banco em Storage → Create Database → Neon.');
+      throw new Error(
+        'DATABASE_URL não definida para este ambiente. Na Vercel, conecte o banco em Storage (Neon) ' +
+          'marcando Production e faça Redeploy. Também aceitos: POSTGRES_URL ou *_DATABASE_URL.'
+      );
     };
     defaultDb = { query: missing };
   } else {
