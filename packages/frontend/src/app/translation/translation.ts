@@ -1,6 +1,7 @@
 import { Component, DestroyRef, OnInit, PLATFORM_ID, computed, inject, signal } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import { IconComponent } from '../components/icon.component';
 import { HttpErrorResponse } from '@angular/common/http';
 import { CueWarning, Job, JobCue, SubtitleService, apiErrorMessage } from '../services/subtitle.service';
 
@@ -20,7 +21,7 @@ const MAX_FAILURES = 3;
 @Component({
   selector: 'app-translation',
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, IconComponent],
   templateUrl: './translation.html',
   styleUrl: './translation.scss',
 })
@@ -38,6 +39,8 @@ export class TranslationComponent implements OnInit {
   loadError = signal<string | null>(null);
   actionError = signal<string | null>(null);
   filter = signal<Filter>('all');
+  /** Free-text search over the original and the translation (case and accent insensitive). */
+  search = signal('');
   saveState = signal<Record<number, SaveState>>({});
   /** True when translation stopped after repeated network errors. */
   paused = signal(false);
@@ -72,10 +75,16 @@ export class TranslationComponent implements OnInit {
   });
   visibleCues = computed(() => {
     const f = this.filter();
-    const all = this.cues();
-    if (f === 'all') return all;
-    if (f === 'warnings') return all.filter(c => c.warnings.length);
-    return all.filter(c => c.warnings.includes(f));
+    let list = this.cues();
+    if (f === 'warnings') list = list.filter(c => c.warnings.length);
+    else if (f !== 'all') list = list.filter(c => c.warnings.includes(f));
+    const q = normalize(this.search().trim());
+    if (q) list = list.filter(c => normalize(c.text).includes(q) || normalize(c.translation ?? '').includes(q));
+    return list;
+  });
+  statusLabel = computed(() => {
+    if (this.status() === 'translating') return this.paused() ? 'Pausada' : 'Traduzindo';
+    return this.status() === 'done' ? 'Concluída' : 'Erro';
   });
   editedCount = computed(() => this.cues().filter(c => c.source === 'user').length);
 
@@ -208,6 +217,18 @@ export class TranslationComponent implements OnInit {
     return this.api.downloadUrl(this.jobId);
   }
 
+  /** Colour family of a warning: red when the text was not translated, blue for info, amber otherwise. */
+  level(w: CueWarning): 'danger' | 'warning' | 'info' {
+    return w === 'untranslated' ? 'danger' : w === 'fallback_provider' ? 'info' : 'warning';
+  }
+
+  /** The most severe warning level of a cue, used for the coloured edge of its row. */
+  cueLevel(cue: JobCue): string | null {
+    if (!cue.warnings.length) return null;
+    const levels = cue.warnings.map(w => this.level(w));
+    return levels.includes('danger') ? 'danger' : levels.includes('warning') ? 'warning' : 'info';
+  }
+
   rows(text: string | null): number {
     return Math.max(2, (text ?? '').split('\n').length);
   }
@@ -228,4 +249,8 @@ export class TranslationComponent implements OnInit {
       }, 2500);
     }
   }
+}
+
+function normalize(s: string): string {
+  return s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 }

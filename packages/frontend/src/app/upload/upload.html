@@ -1,36 +1,56 @@
-<section class="upload">
-  <h2>Traduza legendas para português</h2>
-  <p class="lead">Envie um arquivo <code>.srt</code> em inglês. A tradução começa na hora e você pode revisar cada fala antes de baixar.</p>
-
-  <label
-    class="dropzone"
-    [class.dragging]="dragging()"
-    [class.busy]="uploading()"
-    (dragover)="onDragOver($event)"
-    (dragleave)="onDragLeave($event)"
-    (drop)="onDrop($event)"
-  >
-    <input type="file" accept=".srt" (change)="onFileInput($event)" [disabled]="uploading()" />
-    @if (uploading()) {
-      <div class="spinner" aria-hidden="true"></div>
-      <strong>Enviando {{ fileName() }}…</strong>
-    } @else {
-      <svg viewBox="0 0 24 24" width="48" height="48" aria-hidden="true">
-        <path fill="currentColor" d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M13.5,16V19H10.5V16H8L12,12L16,16H13.5M13,9V3.5L18.5,9H13Z" />
-      </svg>
-      <strong>{{ dragging() ? 'Solte para traduzir' : 'Arraste o arquivo .srt aqui' }}</strong>
-      <span>ou <span class="link">clique para escolher</span> · até 4 MB</span>
-    }
-  </label>
-
-  @if (error()) {
-    <div class="error" role="alert">{{ error() }}</div>
-  }
-
-  <ol class="steps">
-    <li><b>Envie</b> o .srt</li>
-    <li><b>Revise</b> as falas marcadas com aviso</li>
-    <li><b>Baixe</b> o arquivo em PT-BR</li>
-  </ol>
-  <p class="hint">Suas correções ficam salvas na memória e são reaproveitadas nas próximas traduções.</p>
+<section class="hero">
+  <span class="badge accent eyebrow"><app-icon name="sparkle" [size]="14" /> Grátis · sem cadastro</span>
+  <h1>Traduza legendas para português em segundos</h1>
+  <p class="lead">Envie um arquivo <code>.srt</code> em inglês, revise as falas marcadas e baixe a legenda pronta para usar.</p>
 </section>
+
+<label
+  class="dropzone card"
+  [class.dragging]="dragging()"
+  [class.busy]="uploading()"
+  (dragover)="onDragOver($event)"
+  (dragleave)="onDragLeave($event)"
+  (drop)="onDrop($event)"
+>
+  <input type="file" accept=".srt" (change)="onFileInput($event)" [disabled]="uploading()" aria-label="Escolher arquivo .srt" />
+  @if (uploading()) {
+    <span class="drop-icon"><span class="spinner"></span></span>
+    <strong>Enviando {{ fileName() }}…</strong>
+    <span class="hint">A tradução começa assim que o envio terminar</span>
+  } @else {
+    <span class="drop-icon"><app-icon name="upload" [size]="22" /></span>
+    <strong>{{ dragging() ? 'Solte para traduzir' : 'Arraste o arquivo .srt para cá' }}</strong>
+    <span class="hint">ou <span class="link">escolha no computador</span> · até 4 MB</span>
+  }
+</label>
+
+@if (error()) {
+  <div class="alert danger" role="alert">
+    <app-icon name="alert" />
+    <div class="alert-body">{{ error() }}</div>
+  </div>
+}
+
+<ol class="steps">
+  <li class="card">
+    <span class="step-icon"><app-icon name="upload" /></span>
+    <div><strong>Envie</strong><p>O arquivo é traduzido em lotes, com progresso em tempo real.</p></div>
+  </li>
+  <li class="card">
+    <span class="step-icon"><app-icon name="pencil" /></span>
+    <div><strong>Revise</strong><p>Filtre as falas com aviso e corrija direto na lista.</p></div>
+  </li>
+  <li class="card">
+    <span class="step-icon"><app-icon name="download" /></span>
+    <div><strong>Baixe</strong><p>Receba o <code>.pt-BR.srt</code> pronto para qualquer player ou TV.</p></div>
+  </li>
+</ol>
+
+<div class="keeps">
+  <span class="keeps-title">Preservado na tradução</span>
+  <span class="badge"><app-icon name="clock" [size]="14" /> Tempos</span>
+  <span class="badge"><app-icon name="italic" [size]="14" /> Itálico</span>
+  <span class="badge"><app-icon name="message" [size]="14" /> Diálogos</span>
+  <span class="badge"><app-icon name="check" [size]="14" /> Acentos (UTF-8)</span>
+</div>
+<p class="memory-note">Suas correções ficam na memória e são reaproveitadas nas próximas traduções.</p>

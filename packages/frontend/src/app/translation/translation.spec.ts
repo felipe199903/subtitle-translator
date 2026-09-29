@@ -77,6 +77,35 @@ describe('TranslationComponent', () => {
     expect(rows[0].textContent).toContain('Não traduzida');
   });
 
+  it('searches the original and the translation, ignoring accents and case', async () => {
+    api.getJob.and.returnValue(
+      of(job({ cues: [cue(0, { text: 'Hello there', translation: 'Olá, você aí' }), cue(1), cue(2, { text: 'Coffee', translation: 'Café' })] }))
+    );
+    await setup();
+    const c = fixture.componentInstance;
+    c.search.set('OLA');
+    expect(c.visibleCues().map(x => x.position)).toEqual([0]);
+    c.search.set('cafe');
+    expect(c.visibleCues().map(x => x.position)).toEqual([2]);
+    c.search.set('coffee');
+    expect(c.visibleCues().map(x => x.position)).toEqual([2]);
+    c.search.set('nada disso');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Nenhuma fala encontrada');
+  });
+
+  it('combines search with the warning filter and colours flagged rows', async () => {
+    api.getJob.and.returnValue(of(job()));
+    await setup();
+    const c = fixture.componentInstance;
+    c.setFilter('untranslated');
+    c.search.set('line');
+    fixture.detectChanges();
+    const rows = fixture.nativeElement.querySelectorAll('.cue:not(.head)');
+    expect(rows.length).toBe(1);
+    expect(rows[0].getAttribute('data-level')).toBe('danger');
+  });
+
   it('saves an edited translation on blur and marks it as the user correction', async () => {
     api.getJob.and.returnValue(of(job()));
     api.editCue.and.returnValue(of(cue(0, { translation: 'Minha linha', source: 'user' })));

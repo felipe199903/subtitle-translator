@@ -1,71 +1,106 @@
-import { Component } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
-import { ToastComponent } from './components/toast/toast.component';
-import { LoadingComponent } from './components/loading/loading.component';
+import { Component, inject } from '@angular/core';
+import { RouterLink, RouterOutlet } from '@angular/router';
+import { IconComponent } from './components/icon.component';
+import { ThemeService } from './services/theme.service';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, ToastComponent, LoadingComponent],
+  imports: [RouterOutlet, RouterLink, IconComponent],
   template: `
-    <div class="app-container">
-      <header class="header">
-        <div class="header-content">
-          <h1>🎬 Subtitle Translator</h1>
-          <p>Legendas .srt do inglês para o português (BR)</p>
-        </div>
-      </header>
-      <main class="main-container">
-        <router-outlet></router-outlet>
-      </main>
-      <app-toast></app-toast>
-      <app-loading [isGlobal]="true"></app-loading>
-    </div>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a routerLink="/" class="brand" aria-label="Tradutor de Legendas, página inicial">
+          <img src="favicon.svg" alt="" width="28" height="28" />
+          <span class="brand-name">Tradutor de Legendas</span>
+          <span class="badge brand-pair">EN → PT-BR</span>
+        </a>
+        <button
+          type="button"
+          class="btn ghost icon"
+          (click)="theme.toggle()"
+          [attr.aria-label]="theme.mode() === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'"
+          [title]="theme.mode() === 'dark' ? 'Tema claro' : 'Tema escuro'"
+        >
+          <app-icon [name]="theme.mode() === 'dark' ? 'sun' : 'moon'" />
+        </button>
+      </div>
+    </header>
+
+    <main class="page">
+      <router-outlet />
+    </main>
+
+    <footer class="footer">Tradução automática · revise antes de publicar</footer>
   `,
-  styles: [`
-    .app-container {
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
-    .header {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 2rem 0;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    }
-    .header-content {
-      max-width: 1200px;
-      margin: 0 auto;
-      text-align: center;
-      padding: 0 20px;
-    }
-    .header h1 {
-      margin: 0;
-      color: white;
-      font-size: 2.5rem;
-      font-weight: 300;
-    }
-    .header p {
-      margin: 0.5rem 0 0;
-      opacity: 0.9;
-      font-size: 1.1rem;
-    }
-    .main-container {
-      flex: 1;
-      padding: 2rem;
-      max-width: 1200px;
-      margin: 0 auto;
-      width: 100%;
-    }
-    @media (max-width: 720px) {
-      .header { padding: 1rem 0; }
-      .header h1 { font-size: 1.5rem; }
-      .header p { font-size: 0.9rem; }
-      .main-container { padding: 1rem; }
-    }
-  `]
+  styles: [
+    `
+      :host {
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+      }
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        height: var(--topbar-h);
+        background: color-mix(in srgb, var(--bg) 82%, transparent);
+        backdrop-filter: saturate(180%) blur(10px);
+        border-bottom: 1px solid var(--border);
+      }
+      .topbar-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        max-width: 1100px;
+        height: 100%;
+        margin: 0 auto;
+        padding: 0 1.25rem;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        color: var(--text);
+        text-decoration: none;
+        border-radius: var(--radius-sm);
+      }
+      .brand img {
+        border-radius: 7px;
+      }
+      .brand-name {
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .page {
+        flex: 1;
+        width: 100%;
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 2rem 1.25rem 3rem;
+      }
+      .footer {
+        padding: 1.25rem;
+        border-top: 1px solid var(--border);
+        color: var(--text-subtle);
+        font-size: 0.8rem;
+        text-align: center;
+      }
+      @media (max-width: 560px) {
+        .brand-pair {
+          display: none;
+        }
+        .page {
+          padding: 1.25rem 1rem 2rem;
+        }
+        .topbar-inner {
+          padding: 0 1rem;
+        }
+      }
+    `,
+  ],
 })
 export class AppComponent {
-  title = 'Subtitle Translator';
+  protected theme = inject(ThemeService);
 }

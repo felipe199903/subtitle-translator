@@ -1,18 +1,25 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <title>🎬 Subtitle Translator</title>
+  <title>Tradutor de Legendas</title>
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#1a1a1a">
-  <meta name="description" content="Tradutor de legendas SRT com IA - Treine e melhore a precisão das traduções">
-  
-  <!-- Favicons -->
+  <meta name="description" content="Traduza legendas .srt do inglês para o português (BR), revise fala por fala e baixe o arquivo pronto.">
+  <meta name="theme-color" content="#f7f7f8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b0b0e" media="(prefers-color-scheme: dark)">
+  <script>
+    // Apply the saved theme before the first paint (avoids a light/dark flash).
+    try {
+      var t = localStorage.getItem('theme');
+      if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="alternate icon" type="image/x-icon" href="favicon.ico">
-  
-  <!-- Apple Touch Icon -->
   <link rel="apple-touch-icon" href="favicon.svg">
 </head>
 <body>

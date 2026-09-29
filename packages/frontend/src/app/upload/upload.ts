@@ -1,10 +1,12 @@
 import { Component, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
+import { IconComponent } from '../components/icon.component';
 import { MAX_FILE_BYTES, SubtitleService, apiErrorMessage } from '../services/subtitle.service';
 
 @Component({
   selector: 'app-upload',
   standalone: true,
+  imports: [IconComponent],
   templateUrl: './upload.html',
   styleUrl: './upload.scss',
 })

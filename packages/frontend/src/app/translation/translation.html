@@ -1,127 +1,167 @@
 @if (loadError()) {
-  <section class="empty">
+  <section class="card empty">
+    <span class="empty-icon"><app-icon name="alert" [size]="22" /></span>
+    <h2>Tradução indisponível</h2>
     <p>{{ loadError() }}</p>
-    <a routerLink="/" class="btn primary">Enviar um arquivo</a>
+    <a routerLink="/" class="btn primary"><app-icon name="upload" [size]="16" /> Enviar um arquivo</a>
   </section>
 } @else if (!job()) {
-  <section class="empty"><div class="spinner" aria-hidden="true"></div><p>Carregando…</p></section>
+  <section class="card empty">
+    <span class="spinner lg"></span>
+    <p>Carregando tradução…</p>
+  </section>
 } @else {
-  <section class="toolbar">
-    <div class="title">
-      <a routerLink="/" class="back">← Nova tradução</a>
-      <h2 [title]="job()!.fileName">{{ job()!.fileName }}</h2>
-      <span class="meta">{{ progress().total }} falas · inglês → português (BR)</span>
+  <a routerLink="/" class="back"><app-icon name="arrow-left" [size]="16" /> Nova tradução</a>
+
+  <section class="card summary">
+    <div class="summary-main">
+      <span class="file-icon"><app-icon name="file" [size]="20" /></span>
+      <div class="title">
+        <h1 [title]="job()!.fileName">{{ job()!.fileName }}</h1>
+        <div class="meta">
+          <span class="badge dot" [class.accent]="status() === 'translating' && !paused()" [class.warning]="paused()"
+                [class.success]="status() === 'done'" [class.danger]="status() === 'error'">{{ statusLabel() }}</span>
+          <span class="badge tabular">{{ progress().total }} falas</span>
+          <span class="badge"><app-icon name="languages" [size]="13" /> EN → PT-BR</span>
+        </div>
+      </div>
+      <div class="actions">
+        @if (status() === 'done' && (warningCounts().untranslated ?? 0) > 0) {
+          <button type="button" class="btn" (click)="retry()">
+            <app-icon name="refresh" [size]="16" /> Tentar de novo ({{ warningCounts().untranslated }})
+          </button>
+        }
+        @if (status() === 'translating' && paused()) {
+          <button type="button" class="btn primary" disabled><app-icon name="download" [size]="16" /> Baixar SRT</button>
+        } @else if (status() === 'translating') {
+          <button type="button" class="btn primary" disabled><span class="spinner"></span> Traduzindo…</button>
+        } @else {
+          <a class="btn primary" [href]="downloadUrl()" download><app-icon name="download" [size]="16" /> Baixar SRT</a>
+        }
+      </div>
     </div>
 
-    <div class="actions">
-      @if (status() === 'done' && (warningCounts().untranslated ?? 0) > 0) {
-        <button type="button" class="btn" (click)="retry()">
-          Tentar de novo ({{ warningCounts().untranslated }})
-        </button>
-      }
-      @if (status() === 'translating') {
-        <button type="button" class="btn primary" disabled>Traduzindo…</button>
-      } @else {
-        <a class="btn primary" [href]="downloadUrl()" download>⬇ Baixar SRT (PT-BR)</a>
-      }
-    </div>
+    @if (status() === 'translating' && paused()) {
+      <div class="alert warning paused" role="alert">
+        <app-icon name="pause" />
+        <div class="alert-body">
+          <strong>Tradução pausada.</strong> Não conseguimos falar com o servidor ·
+          <span class="tabular">{{ progress().done }} de {{ progress().total }}</span> falas prontas.
+        </div>
+        <button type="button" class="btn sm" (click)="resume()">Continuar</button>
+      </div>
+    } @else if (status() === 'translating') {
+      <div class="progress-row" role="progressbar" [attr.aria-valuenow]="progress().percent" aria-valuemin="0" aria-valuemax="100">
+        <div class="progress active"><div class="fill" [style.width.%]="progress().percent"></div></div>
+        <span class="tabular">
+          {{ progress().done }} de {{ progress().total }} falas · {{ progress().percent }}%
+          @if (eta()) { · ~{{ eta() }} }
+        </span>
+      </div>
+    } @else if (status() === 'error') {
+      <div class="alert danger" role="alert"><app-icon name="alert" /><div class="alert-body">{{ job()!.error }}</div></div>
+    } @else {
+      <div class="stats">
+        <div class="stat"><span class="stat-value tabular">{{ cues().length }}</span><span class="stat-label">Falas traduzidas</span></div>
+        <div class="stat" [class.attention]="totalWarnings() > 0">
+          <span class="stat-value tabular">{{ totalWarnings() }}</span><span class="stat-label">Com aviso</span>
+        </div>
+        <div class="stat"><span class="stat-value tabular">{{ editedCount() }}</span><span class="stat-label">Corrigidas por você</span></div>
+        <p class="done-note">
+          <app-icon name="check" [size]="16" /> Tradução concluída.
+          @if (totalWarnings() > 0) { Revise as falas com aviso antes de baixar. } @else { Nenhum aviso encontrado. }
+        </p>
+      </div>
+    }
   </section>
 
-  @if (status() === 'translating' && paused()) {
-    <div class="notice warn paused" role="alert">
-      Tradução pausada: não conseguimos falar com o servidor. {{ progress().done }}/{{ progress().total }} falas prontas.
-      <button type="button" class="btn" (click)="resume()">Continuar</button>
-    </div>
-  } @else if (status() === 'translating') {
-    <div class="progress" role="progressbar" [attr.aria-valuenow]="progress().percent" aria-valuemin="0" aria-valuemax="100">
-      <div class="bar"><div class="fill" [style.width.%]="progress().percent"></div></div>
-      <span>
-        {{ progress().done }}/{{ progress().total }} ({{ progress().percent }}%)
-        @if (eta()) { · faltam ~{{ eta() }} }
-      </span>
-    </div>
-  } @else if (status() === 'error') {
-    <div class="notice error" role="alert">{{ job()!.error }}</div>
-  } @else {
-    <div class="notice success">
-      Tradução concluída.
-      @if (totalWarnings() > 0) {
-        {{ totalWarnings() }} falas têm avisos; vale revisar antes de baixar.
-      } @else {
-        Nenhum aviso.
-      }
-      @if (editedCount() > 0) { · {{ editedCount() }} corrigidas por você. }
-    </div>
-  }
-
   @for (w of job()!.parseWarnings; track $index) {
-    <div class="notice warn">{{ w }}</div>
+    <div class="alert warning"><app-icon name="alert" /><div class="alert-body">{{ w }}</div></div>
   }
   @if (actionError()) {
-    <div class="notice error" role="alert">{{ actionError() }}</div>
+    <div class="alert danger" role="alert"><app-icon name="alert" /><div class="alert-body">{{ actionError() }}</div></div>
   }
 
-  <nav class="filters" aria-label="Filtrar falas">
-    <button type="button" [class.active]="filter() === 'all'" (click)="filter.set('all')">
-      Todas <b>{{ cues().length }}</b>
-    </button>
-    <button type="button" [class.active]="filter() === 'warnings'" (click)="setFilter('warnings')" [disabled]="!totalWarnings()">
-      Com aviso <b>{{ totalWarnings() }}</b>
-    </button>
-    @for (w of warningTypes; track w) {
-      @if (warningCounts()[w]) {
-        <button type="button" [class]="'chip-' + w" [class.active]="filter() === w" (click)="setFilter(w)" [title]="warningLabels[w].help">
-          {{ warningLabels[w].label }} <b>{{ warningCounts()[w] }}</b>
-        </button>
+  <div class="toolbar">
+    <nav class="filters" aria-label="Filtrar falas">
+      <button type="button" [class.active]="filter() === 'all'" (click)="filter.set('all')">
+        Todas <span class="count tabular">{{ cues().length }}</span>
+      </button>
+      <button type="button" [class.active]="filter() === 'warnings'" (click)="setFilter('warnings')" [disabled]="!totalWarnings()">
+        Com aviso <span class="count tabular">{{ totalWarnings() }}</span>
+      </button>
+      @for (w of warningTypes; track w) {
+        @if (warningCounts()[w]) {
+          <button type="button" [class.active]="filter() === w" (click)="setFilter(w)" [title]="warningLabels[w].help">
+            <i [class]="'filter-dot ' + level(w)"></i>{{ warningLabels[w].label }}
+            <span class="count tabular">{{ warningCounts()[w] }}</span>
+          </button>
+        }
       }
-    }
-  </nav>
+    </nav>
+    <label class="search">
+      <app-icon name="search" [size]="16" />
+      <input type="search" placeholder="Buscar fala…" aria-label="Buscar no original ou na tradução"
+             [value]="search()" (input)="search.set($any($event.target).value)" />
+      @if (search()) {
+        <button type="button" class="clear" (click)="search.set('')" aria-label="Limpar busca"><app-icon name="x" [size]="14" /></button>
+      }
+    </label>
+  </div>
 
-  <p class="tip">Clique numa tradução para editar. Ela é salva ao sair do campo (Esc desfaz) e fica na memória para as próximas vezes.</p>
-
-  <div class="cues">
-    <div class="cue head" aria-hidden="true">
-      <span>#</span><span>Original</span><span>Português (BR)</span>
-    </div>
+  <div class="card list">
+    <div class="cue head" aria-hidden="true"><span>#</span><span>Original</span><span>Português (BR)</span></div>
     @for (cue of visibleCues(); track cue.position) {
-      <div class="cue" [class.pending]="cue.translation === null" [class.flagged]="cue.warnings.length > 0">
+      <div class="cue" [class.pending]="cue.translation === null" [attr.data-level]="cueLevel(cue)">
         <div class="num">
-          <b>{{ cue.index }}</b>
-          <small>{{ shortTime(cue.start) }}</small>
+          <span class="idx tabular">{{ cue.index }}</span>
+          <span class="time tabular">{{ shortTime(cue.start) }}</span>
         </div>
         <div class="original">{{ cue.text }}</div>
         <div class="translated">
           @if (cue.translation === null) {
-            <div class="placeholder">traduzindo…</div>
-          } @else {
-            <textarea
-              #box
-              [value]="cue.translation"
-              [rows]="rows(cue.translation)"
-              (blur)="save(cue, box)"
-              (keydown.escape)="revert(cue, box)"
-              [attr.aria-label]="'Tradução da fala ' + cue.index"
-              spellcheck="true"
-              lang="pt-BR"
-            ></textarea>
-            <div class="badges">
-              @switch (saveState()[cue.position]) {
-                @case ('saving') { <span class="badge info">Salvando…</span> }
-                @case ('saved') { <span class="badge ok">Salvo na memória</span> }
-                @case ('error') { <span class="badge bad">Erro ao salvar</span> }
-              }
-              @if (cue.source === 'user') {
-                <span class="badge user">Sua correção</span>
-              }
-              @for (w of cue.warnings; track w) {
-                <span [class]="'badge chip-' + w" [title]="warningLabels[w].help">{{ warningLabels[w].label }}</span>
-              }
+            <div class="placeholder">
+              <span class="skeleton"></span><span class="skeleton short"></span>
+              <span class="visually-hidden">traduzindo…</span>
             </div>
+          } @else {
+            <div class="editor">
+              <textarea
+                #box
+                [value]="cue.translation"
+                [rows]="rows(cue.translation)"
+                (blur)="save(cue, box)"
+                (keydown.escape)="revert(cue, box)"
+                [attr.aria-label]="'Tradução da fala ' + cue.index"
+                spellcheck="true"
+                lang="pt-BR"
+              ></textarea>
+              <app-icon name="pencil" [size]="14" class="edit-hint" />
+            </div>
+            @if (cue.warnings.length || cue.source === 'user' || saveState()[cue.position]) {
+              <div class="badges">
+                @switch (saveState()[cue.position]) {
+                  @case ('saving') { <span class="badge info"><span class="spinner"></span> Salvando…</span> }
+                  @case ('saved') { <span class="badge success"><app-icon name="check" [size]="12" /> Salvo na memória</span> }
+                  @case ('error') { <span class="badge danger">Erro ao salvar</span> }
+                }
+                @if (cue.source === 'user') {
+                  <span class="badge accent"><app-icon name="pencil" [size]="11" /> Sua correção</span>
+                }
+                @for (w of cue.warnings; track w) {
+                  <span [class]="'badge dot ' + level(w)" [title]="warningLabels[w].help">{{ warningLabels[w].label }}</span>
+                }
+              </div>
+            }
           }
         </div>
       </div>
     } @empty {
-      <p class="empty-filter">Nenhuma fala neste filtro.</p>
+      <div class="empty-filter">
+        <app-icon name="search" [size]="20" />
+        <p>Nenhuma fala encontrada{{ search() ? ' para "' + search() + '"' : ' neste filtro' }}.</p>
+        <button type="button" class="btn sm" (click)="filter.set('all'); search.set('')">Mostrar todas</button>
+      </div>
     }
   </div>
 }
