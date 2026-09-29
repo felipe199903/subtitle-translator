@@ -1,35 +1,25 @@
 {
   "name": "subtitle-translator-monorepo",
   "version": "1.0.0",
-  "description": "Monorepo for subtitle translation application with Angular frontend and Node.js backend",
+  "description": "Tradutor de legendas .srt (Angular + API Express) publicado como um único projeto na Vercel",
   "private": true,
   "workspaces": [
     "packages/frontend",
     "packages/backend"
   ],
   "scripts": {
-    "install:all": "npm install && npm run install:frontend && npm run install:backend",
-    "install:frontend": "cd packages/frontend && npm install",
-    "install:backend": "cd packages/backend && npm install",
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:docker": "docker compose up -d backend && npm run dev:frontend",
-    "dev:frontend": "cd packages/frontend && npm start",
-    "dev:backend": "cd packages/backend && npm run dev",
-    "build": "npm run build:frontend && npm run build:backend",
-    "build:frontend": "cd packages/frontend && npm run build",
-    "build:backend": "cd packages/backend && npm run build",
-    "start": "cd packages/backend && npm start",
-    "test:backend": "npx jest --config packages/backend/jest.config.js"
+    "dev": "concurrently -n api,web -c blue,magenta \"npm run dev --workspace packages/backend\" \"npm start --workspace packages/frontend\"",
+    "build": "npm run build --workspace packages/frontend",
+    "test": "npm test --workspace packages/backend && npm test --workspace packages/frontend -- --watch=false --browsers=ChromeHeadless",
+    "test:backend": "npm test --workspace packages/backend",
+    "e2e:live": "npm run e2e:live --workspace packages/backend",
+    "smoke": "npm run smoke --workspace packages/backend --"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
   },
   "engines": {
-    "node": ">=18.0.0",
+    "node": ">=20.12.0",
     "npm": ">=9.0.0"
-  },
-  "dependencies": {
-    "form-data": "^4.0.4",
-    "node-fetch": "^2.7.0"
   }
 }

@@ -19,3 +19,13 @@ yarn-error.log*
 # Arquivos de backup
 *.bak
 *~
+# Build e dados locais
+packages/backend/dist/
+packages/backend/tm.db
+packages/backend/.data/
+tests/output/
+
+# Vercel e variáveis de ambiente (vercel env pull .env.local)
+.vercel
+.env
+.env*.local

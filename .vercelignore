@@ -1,0 +1,7 @@
+# Local data and outputs never go to Vercel
+packages/backend/.data
+packages/backend/dist
+packages/frontend/dist
+tests/output
+.env
+.env*.local
