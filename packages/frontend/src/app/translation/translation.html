@@ -1,119 +1,127 @@
-<div class="translation-container">
-  <div class="header">
-    <button (click)="goBack()" class="back-btn">
-      ← Voltar
-    </button>
-    <h1>Tradução de Legendas</h1>
-    
-    <!-- Indicador de treinamento ativo -->
-    <div *ngIf="isTrainingActive" class="training-indicator">
-      <div class="training-icon">🧠</div>
-      <div class="training-info">
-        <span class="training-text">Treinamento ativo</span>
-        <span class="training-subtext">Melhorando dicionário...</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="file-info">
-    <h3>Arquivo: {{ fileName }}</h3>
-    <p>Idioma detectado: {{ getLanguageName(originalLanguage) }}</p>
-    <p>Total de legendas: {{ subtitles.length }}</p>
-  </div>
-
-  <div class="actions">
-    <button *ngIf="!translatedSrtContent && !isTranslating" 
-            (click)="translateSubtitles()"
-            class="translate-btn">
-      Traduzir para Português (BR)
-    </button>
-
-    <div *ngIf="isTranslating" class="loading">
-      <div class="spinner"></div>
-      <div class="loading-content">
-        <p>Traduzindo legendas...</p>
-        <div *ngIf="isTrainingActive" class="training-boost">
-          <span class="boost-icon">⚡</span>
-          <span class="boost-text">Usando melhorias do treinamento</span>
-        </div>
-        <div *ngIf="translationProgress" class="translation-progress">
-          <div class="progress-bar">
-            <div class="progress-fill" [style.width.%]="translationProgress.percentage"></div>
-          </div>
-          <span class="progress-text">
-            {{ translationProgress.current }}/{{ translationProgress.total }} 
-            ({{ translationProgress.percentage }}%)
-          </span>
-        </div>
-      </div>
+@if (loadError()) {
+  <section class="empty">
+    <p>{{ loadError() }}</p>
+    <a routerLink="/" class="btn primary">Enviar um arquivo</a>
+  </section>
+} @else if (!job()) {
+  <section class="empty"><div class="spinner" aria-hidden="true"></div><p>Carregando…</p></section>
+} @else {
+  <section class="toolbar">
+    <div class="title">
+      <a routerLink="/" class="back">← Nova tradução</a>
+      <h2 [title]="job()!.fileName">{{ job()!.fileName }}</h2>
+      <span class="meta">{{ progress().total }} falas · inglês → português (BR)</span>
     </div>
 
-    <div *ngIf="translatedSrtContent" class="download-section">
-      <button (click)="downloadTranslatedSRT()"
-              class="download-btn">
-        📥 Baixar SRT Traduzido
-      </button>
-      <p class="download-info">
-        Arquivo pronto para download com {{ subtitles.length }} legendas traduzidas
-      </p>
+    <div class="actions">
+      @if (status() === 'done' && (warningCounts().untranslated ?? 0) > 0) {
+        <button type="button" class="btn" (click)="retry()">
+          Tentar de novo ({{ warningCounts().untranslated }})
+        </button>
+      }
+      @if (status() === 'translating') {
+        <button type="button" class="btn primary" disabled>Traduzindo…</button>
+      } @else {
+        <a class="btn primary" [href]="downloadUrl()" download>⬇ Baixar SRT (PT-BR)</a>
+      }
     </div>
-  </div>
+  </section>
 
-  <div *ngIf="translationError" class="error-message">
-    {{ translationError }}
-  </div>
-
-  <div *ngIf="translationSuccess" class="success-message">
-    {{ translationSuccess }}
-  </div>
-
-  <div class="subtitles-preview">
-    <h3>Prévia das Legendas</h3>
-    <div *ngIf="translatedSrtContent" class="sync-info">
-      <span class="sync-icon">🔄</span>
-      <span>Scrolls sincronizados | Passe o mouse sobre as legendas para destacar</span>
-      <span *ngIf="hoveredIndex !== null" class="highlight-indicator">
-        ✨ Destacando legenda {{ hoveredIndex + 1 }}
+  @if (status() === 'translating' && paused()) {
+    <div class="notice warn paused" role="alert">
+      Tradução pausada: não conseguimos falar com o servidor. {{ progress().done }}/{{ progress().total }} falas prontas.
+      <button type="button" class="btn" (click)="resume()">Continuar</button>
+    </div>
+  } @else if (status() === 'translating') {
+    <div class="progress" role="progressbar" [attr.aria-valuenow]="progress().percent" aria-valuemin="0" aria-valuemax="100">
+      <div class="bar"><div class="fill" [style.width.%]="progress().percent"></div></div>
+      <span>
+        {{ progress().done }}/{{ progress().total }} ({{ progress().percent }}%)
+        @if (eta()) { · faltam ~{{ eta() }} }
       </span>
     </div>
-    <div class="subtitles-grid">
-      <div class="subtitle-column">
-        <h4>Original</h4>
-        <div class="subtitle-list" 
-             #originalList
-             (scroll)="onScroll($event, 'original')">
-          <div *ngFor="let subtitle of subtitles; let i = index" 
-               class="subtitle-item"
-               [class.highlighted]="hoveredIndex === i"
-               (mouseenter)="setHoveredIndex(i)"
-               (mouseleave)="clearHoveredIndex()">
-            <div class="subtitle-time">
-              {{ subtitle.startTime }} → {{ subtitle.endTime }}
-            </div>
-            <div class="subtitle-text">{{ subtitle.text }}</div>
-          </div>
-        </div>
-      </div>
-
-      <div *ngIf="translatedSrtContent" class="subtitle-column">
-        <h4>Traduzido (PT-BR)</h4>
-        <div class="subtitle-list"
-             #translatedList
-             (scroll)="onScroll($event, 'translated')">
-          <div *ngFor="let subtitle of subtitles; let i = index" 
-               class="subtitle-item"
-               [class.highlighted]="hoveredIndex === i"
-               (mouseenter)="setHoveredIndex(i)"
-               (mouseleave)="clearHoveredIndex()">
-            <div class="subtitle-time">
-              {{ subtitle.startTime }} → {{ subtitle.endTime }}
-            </div>
-            <div class="subtitle-text translated">
-              {{ subtitle.translatedText || subtitle.text }}
-            </div>
-          </div>
-        </div>
-      </div>
+  } @else if (status() === 'error') {
+    <div class="notice error" role="alert">{{ job()!.error }}</div>
+  } @else {
+    <div class="notice success">
+      Tradução concluída.
+      @if (totalWarnings() > 0) {
+        {{ totalWarnings() }} falas têm avisos; vale revisar antes de baixar.
+      } @else {
+        Nenhum aviso.
+      }
+      @if (editedCount() > 0) { · {{ editedCount() }} corrigidas por você. }
     </div>
+  }
+
+  @for (w of job()!.parseWarnings; track $index) {
+    <div class="notice warn">{{ w }}</div>
+  }
+  @if (actionError()) {
+    <div class="notice error" role="alert">{{ actionError() }}</div>
+  }
+
+  <nav class="filters" aria-label="Filtrar falas">
+    <button type="button" [class.active]="filter() === 'all'" (click)="filter.set('all')">
+      Todas <b>{{ cues().length }}</b>
+    </button>
+    <button type="button" [class.active]="filter() === 'warnings'" (click)="setFilter('warnings')" [disabled]="!totalWarnings()">
+      Com aviso <b>{{ totalWarnings() }}</b>
+    </button>
+    @for (w of warningTypes; track w) {
+      @if (warningCounts()[w]) {
+        <button type="button" [class]="'chip-' + w" [class.active]="filter() === w" (click)="setFilter(w)" [title]="warningLabels[w].help">
+          {{ warningLabels[w].label }} <b>{{ warningCounts()[w] }}</b>
+        </button>
+      }
+    }
+  </nav>
+
+  <p class="tip">Clique numa tradução para editar. Ela é salva ao sair do campo (Esc desfaz) e fica na memória para as próximas vezes.</p>
+
+  <div class="cues">
+    <div class="cue head" aria-hidden="true">
+      <span>#</span><span>Original</span><span>Português (BR)</span>
+    </div>
+    @for (cue of visibleCues(); track cue.position) {
+      <div class="cue" [class.pending]="cue.translation === null" [class.flagged]="cue.warnings.length > 0">
+        <div class="num">
+          <b>{{ cue.index }}</b>
+          <small>{{ shortTime(cue.start) }}</small>
+        </div>
+        <div class="original">{{ cue.text }}</div>
+        <div class="translated">
+          @if (cue.translation === null) {
+            <div class="placeholder">traduzindo…</div>
+          } @else {
+            <textarea
+              #box
+              [value]="cue.translation"
+              [rows]="rows(cue.translation)"
+              (blur)="save(cue, box)"
+              (keydown.escape)="revert(cue, box)"
+              [attr.aria-label]="'Tradução da fala ' + cue.index"
+              spellcheck="true"
+              lang="pt-BR"
+            ></textarea>
+            <div class="badges">
+              @switch (saveState()[cue.position]) {
+                @case ('saving') { <span class="badge info">Salvando…</span> }
+                @case ('saved') { <span class="badge ok">Salvo na memória</span> }
+                @case ('error') { <span class="badge bad">Erro ao salvar</span> }
+              }
+              @if (cue.source === 'user') {
+                <span class="badge user">Sua correção</span>
+              }
+              @for (w of cue.warnings; track w) {
+                <span [class]="'badge chip-' + w" [title]="warningLabels[w].help">{{ warningLabels[w].label }}</span>
+              }
+            </div>
+          }
+        </div>
+      </div>
+    } @empty {
+      <p class="empty-filter">Nenhuma fala neste filtro.</p>
+    }
   </div>
-</div>
+}

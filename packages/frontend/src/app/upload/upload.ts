@@ -1,86 +1,75 @@
-import { Component } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
+import { Component, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
-import { SubtitleService, SubtitleItem } from '../services/subtitle.service';
+import { MAX_FILE_BYTES, SubtitleService, apiErrorMessage } from '../services/subtitle.service';
 
 @Component({
   selector: 'app-upload',
   standalone: true,
-  imports: [CommonModule, FormsModule],
   templateUrl: './upload.html',
-  styleUrl: './upload.scss'
+  styleUrl: './upload.scss',
 })
 export class UploadComponent {
-  selectedFile: File | null = null;
-  isUploading = false;
-  uploadError: string | null = null;
-  uploadSuccess: string | null = null;
-  mode: 'single' | 'training' = 'single';
+  private subtitles = inject(SubtitleService);
+  private router = inject(Router);
 
-  constructor(
-    private subtitleService: SubtitleService,
-    private router: Router
-  ) {}
+  dragging = signal(false);
+  uploading = signal(false);
+  error = signal<string | null>(null);
+  fileName = signal<string | null>(null);
 
-  onFileSelected(event: any): void {
-    const file = event.target.files[0];
-    if (file && file.name.endsWith('.srt')) {
-      this.selectedFile = file;
-      this.uploadError = null;
-    } else {
-      this.uploadError = 'Por favor, selecione um arquivo .srt válido';
-      this.selectedFile = null;
+  onFileInput(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = ''; // allow picking the same file again after an error
+    if (file) this.start(file);
+  }
+
+  onDragOver(event: DragEvent): void {
+    event.preventDefault();
+    if (!this.uploading()) this.dragging.set(true);
+  }
+
+  onDragLeave(event: DragEvent): void {
+    // Ignore leave events fired when moving over child elements.
+    if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node)) this.dragging.set(false);
+  }
+
+  onDrop(event: DragEvent): void {
+    event.preventDefault();
+    this.dragging.set(false);
+    if (this.uploading()) return;
+    const files = event.dataTransfer?.files;
+    if (!files?.length) return;
+    if (files.length > 1) {
+      this.error.set('Envie um arquivo por vez.');
+      return;
     }
+    this.start(files[0]);
   }
 
-  setMode(newMode: 'single' | 'training'): void {
-    this.mode = newMode;
-    this.selectedFile = null;
-    this.uploadError = null;
-    this.uploadSuccess = null;
-  }
-
-  handleFileAction(): void {
-    if (this.mode === 'training') {
-      this.router.navigate(['/training']);
-    } else {
-      // Trigger file selection for single mode
-      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
-      if (fileInput) {
-        fileInput.click();
-      }
+  private start(file: File): void {
+    this.error.set(null);
+    if (!file.name.toLowerCase().endsWith('.srt')) {
+      this.error.set(`"${file.name}" não é um arquivo .srt.`);
+      return;
     }
-  }
-
-  onUpload(): void {
-    if (!this.selectedFile) {
-      this.uploadError = 'Por favor, selecione um arquivo primeiro';
+    if (file.size > MAX_FILE_BYTES) {
+      this.error.set('Arquivo muito grande. O limite é 4 MB.');
+      return;
+    }
+    if (file.size === 0) {
+      this.error.set('O arquivo está vazio.');
       return;
     }
 
-    this.isUploading = true;
-    this.uploadError = null;
-    this.uploadSuccess = null;
-
-    this.subtitleService.uploadSubtitle(this.selectedFile).subscribe({
-      next: (response) => {
-        this.isUploading = false;
-        this.uploadSuccess = 'Arquivo enviado com sucesso!';
-        
-        // Navigate to translation component with data
-        this.router.navigate(['/translation'], {
-          state: {
-            subtitles: response.data.subtitles,
-            originalLanguage: response.data.originalLanguage,
-            fileName: this.selectedFile?.name
-          }
-        });
+    this.fileName.set(file.name);
+    this.uploading.set(true);
+    this.subtitles.createJob(file).subscribe({
+      next: job => this.router.navigate(['/translation', job.id]),
+      error: err => {
+        this.uploading.set(false);
+        this.error.set(apiErrorMessage(err, 'Não foi possível enviar o arquivo.'));
       },
-      error: (error) => {
-        this.isUploading = false;
-        this.uploadError = error.error?.error || 'Erro ao enviar arquivo';
-      }
     });
   }
 }

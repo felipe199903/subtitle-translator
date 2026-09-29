@@ -1,360 +1,231 @@
-import { Component, OnInit, OnDestroy, ChangeDetectorRef, ViewChild, ElementRef } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
-import { SubtitleService, SubtitleItem } from '../services/subtitle';
+import { Component, DestroyRef, OnInit, PLATFORM_ID, computed, inject, signal } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { HttpErrorResponse } from '@angular/common/http';
+import { CueWarning, Job, JobCue, SubtitleService, apiErrorMessage } from '../services/subtitle.service';
+
+type Filter = 'all' | 'warnings' | CueWarning;
+type SaveState = 'saving' | 'saved' | 'error';
+
+export const WARNING_LABELS: Record<CueWarning, { label: string; help: string }> = {
+  untranslated: { label: 'Não traduzida', help: 'O texto voltou igual ao original. Revise ou tente de novo.' },
+  long_line: { label: 'Linha longa', help: 'Uma linha passou de 42 caracteres; pode ficar grande na tela.' },
+  fast_reading: { label: 'Leitura rápida', help: 'A tradução ficou longa para o tempo da fala. Considere encurtar.' },
+  fallback_provider: { label: 'Tradutor reserva', help: 'Traduzida pelo serviço reserva (MyMemory). Vale conferir.' },
+};
+
+/** Consecutive failed steps before the loop pauses and asks the user to continue. */
+const MAX_FAILURES = 3;
 
 @Component({
   selector: 'app-translation',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [RouterLink],
   templateUrl: './translation.html',
-  styleUrl: './translation.scss'
+  styleUrl: './translation.scss',
 })
-export class TranslationComponent implements OnInit, OnDestroy {
-  subtitles: SubtitleItem[] = [];
-  originalLanguage = '';
-  fileName = '';
-  isTranslating = false;
-  translationError: string | null = null;
-  translationSuccess: string | null = null;
-  translatedSrtContent = '';
+export class TranslationComponent implements OnInit {
+  private api = inject(SubtitleService);
+  private route = inject(ActivatedRoute);
+  private destroyRef = inject(DestroyRef);
+  private isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
 
-  // Indicadores de treinamento
-  isTrainingActive = false;
-  translationProgress: { current: number; total: number; percentage: number } | null = null;
+  readonly warningLabels = WARNING_LABELS;
+  readonly warningTypes = Object.keys(WARNING_LABELS) as CueWarning[];
 
-  // Referencias aos elementos de scroll
-  @ViewChild('originalList') originalList!: ElementRef<HTMLDivElement>;
-  @ViewChild('translatedList') translatedList!: ElementRef<HTMLDivElement>;
+  job = signal<Omit<Job, 'cues'> | null>(null);
+  cues = signal<JobCue[]>([]);
+  loadError = signal<string | null>(null);
+  actionError = signal<string | null>(null);
+  filter = signal<Filter>('all');
+  saveState = signal<Record<number, SaveState>>({});
+  /** True when translation stopped after repeated network errors. */
+  paused = signal(false);
 
-  // Controle para evitar loop infinito de scroll
-  private isScrollingSynced = false;
-  private scrollTimeout: any = null;
-  private lastScrollTime = 0;
-  private scrollAnimationFrame: number | null = null;
-  private scrollEndTimeout: any = null;
-  
-  // Controle de hover para destaque sincronizado
-  hoveredIndex: number | null = null;
+  private jobId = '';
+  private running = false;
+  private destroyed = false;
+  private failures = 0;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private loopStartedAt = 0;
+  private doneAtLoopStart = 0;
 
-  constructor(
-    private subtitleService: SubtitleService,
-  private router: Router,
-  private cdr: ChangeDetectorRef
-  ) {
-    const navigation = this.router.getCurrentNavigation();
-    if (navigation?.extras.state) {
-      this.subtitles = navigation.extras.state['subtitles'] || [];
-      this.originalLanguage = navigation.extras.state['originalLanguage'] || '';
-      this.fileName = navigation.extras.state['fileName'] || '';
-    }
-  }
+  status = computed(() => this.job()?.status ?? 'translating');
+  progress = computed(() => {
+    const p = this.job()?.progress ?? { done: 0, total: 0 };
+    return { ...p, percent: p.total ? Math.round((p.done / p.total) * 100) : 0 };
+  });
+  eta = computed(() => {
+    const { done, total } = this.progress();
+    const doneThisRun = done - this.doneAtLoopStart;
+    if (this.status() !== 'translating' || this.paused() || doneThisRun <= 0 || done >= total) return null;
+    const perCue = (Date.now() - this.loopStartedAt) / doneThisRun;
+    const secs = Math.ceil((perCue * (total - done)) / 1000);
+    return secs < 60 ? `${secs}s` : `${Math.ceil(secs / 60)} min`;
+  });
+  totalWarnings = computed(() => this.cues().filter(c => c.warnings.length).length);
+  /** Per-type counts, derived from the local cues so they update right after an edit. */
+  warningCounts = computed(() => {
+    const counts: Partial<Record<CueWarning, number>> = {};
+    for (const c of this.cues()) for (const w of c.warnings) counts[w] = (counts[w] ?? 0) + 1;
+    return counts;
+  });
+  visibleCues = computed(() => {
+    const f = this.filter();
+    const all = this.cues();
+    if (f === 'all') return all;
+    if (f === 'warnings') return all.filter(c => c.warnings.length);
+    return all.filter(c => c.warnings.includes(f));
+  });
+  editedCount = computed(() => this.cues().filter(c => c.source === 'user').length);
 
   ngOnInit(): void {
-    if (this.subtitles.length === 0) {
-      this.router.navigate(['/upload']);
-    }
-
-    // Verifica se há um treinamento ativo (simulação)
-    this.checkTrainingStatus();
+    this.jobId = this.route.snapshot.paramMap.get('jobId') ?? '';
+    this.destroyRef.onDestroy(() => {
+      this.destroyed = true;
+      if (this.retryTimer) clearTimeout(this.retryTimer);
+    });
+    if (this.isBrowser) this.load();
   }
 
-  /**
-   * Verifica se há um treinamento ativo no sistema
-   */
-  private checkTrainingStatus(): void {
-    // Verifica se está no browser (não no SSR)
-    if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
-      return;
-    }
-
-    // Simula verificação de treinamento ativo
-    // Em uma implementação real, isso viria de um serviço que monitora sessões de treinamento
-    const trainingData = localStorage.getItem('activeTrainingSession');
-    if (trainingData) {
-      try {
-        const training = JSON.parse(trainingData);
-        const now = Date.now();
-        const trainingAge = now - training.startTime;
-        
-        // Se o treinamento foi iniciado há menos de 1 hora, considera ativo
-        if (trainingAge < 60 * 60 * 1000) {
-          this.isTrainingActive = true;
-          console.log('🧠 Treinamento ativo detectado - usando melhorias do dicionário');
-        } else {
-          // Remove treinamento expirado
-          localStorage.removeItem('activeTrainingSession');
-        }
-      } catch (e) {
-        localStorage.removeItem('activeTrainingSession');
-      }
-    }
-  }
-
-  ngOnDestroy(): void {
-    // Limpa recursos para evitar memory leaks e conflitos
-    if (this.scrollTimeout) {
-      clearTimeout(this.scrollTimeout);
-      this.scrollTimeout = null;
-    }
-    
-    if (this.scrollAnimationFrame) {
-      cancelAnimationFrame(this.scrollAnimationFrame);
-      this.scrollAnimationFrame = null;
-    }
-
-    if (this.scrollEndTimeout) {
-      clearTimeout(this.scrollEndTimeout);
-      this.scrollEndTimeout = null;
-    }
-    
-    this.isScrollingSynced = false;
-    this.hoveredIndex = null;
-  }
-
-  translateSubtitles(): void {
-    this.isTranslating = true;
-    this.translationError = null;
-    this.translationSuccess = null;
-
-    // Inicializa o progresso
-    this.translationProgress = {
-      current: 0,
-      total: this.subtitles.length,
-      percentage: 0
-    };
-
-    console.log('🔄 Iniciando tradução...');
-    if (this.isTrainingActive) {
-      console.log('⚡ Usando melhorias do treinamento ativo');
-    }
-
-    // Simula progresso da tradução
-    this.simulateTranslationProgress();
-
-    this.subtitleService.translateSubtitle(this.subtitles, 'pt-BR').subscribe({
-      next: (response) => {
-        console.log('✅ Resposta recebida:', response);
-        this.isTranslating = false;
-        
-        if (response.data && response.data.translatedSubtitles) {
-          this.subtitles = response.data.translatedSubtitles;
-          console.log('📄 Legendas traduzidas:', this.subtitles.length);
-        }
-        
-        if (response.data && response.data.srtContent) {
-          this.translatedSrtContent = response.data.srtContent;
-          console.log('📝 Conteúdo SRT recebido:', this.translatedSrtContent.length, 'caracteres');
-        }
-
-        // Finaliza o progresso
-        if (this.translationProgress) {
-          this.translationProgress.current = this.subtitles.length;
-          this.translationProgress.percentage = 100;
-        }
-
-        // Remove o progresso após um breve delay para mostrar 100%
-        setTimeout(() => {
-          this.translationProgress = null;
-          try { this.cdr.detectChanges(); } catch (e) { /* ignore */ }
-        }, 500);
-        
-        this.translationSuccess = this.isTrainingActive 
-          ? 'Legendas traduzidas com melhorias do treinamento!' 
-          : 'Legendas traduzidas com sucesso!';
-        
-        console.log('🎉 Tradução concluída com sucesso!');
-        if (this.isTrainingActive) {
-          console.log('⚡ Beneficiado pelas melhorias do treinamento ativo');
-        }
-        
-        // zoneless app: manually trigger change detection so template updates
-        try { this.cdr.detectChanges(); } catch (e) { /* ignore */ }
+  private load(): void {
+    this.api.getJob(this.jobId).subscribe({
+      next: job => {
+        const { cues, ...meta } = job;
+        this.job.set(meta);
+        this.cues.set(cues);
+        // A new upload, or a reload in the middle of a translation: (re)start the loop.
+        if (job.status === 'translating') this.startLoop();
       },
-      error: (error) => {
-        console.error('❌ Erro na tradução:', error);
-        this.isTranslating = false;
-        this.translationError = error.error?.error || 'Erro ao traduzir legendas';
-        this.translationProgress = null;
-  try { this.cdr.detectChanges(); } catch (e) { /* ignore */ }
-      }
+      error: (err: unknown) => {
+        this.loadError.set(
+          err instanceof HttpErrorResponse && err.status === 404
+            ? 'Esta tradução não existe mais (elas expiram 7 dias depois do último acesso). Envie o arquivo de novo.'
+            : apiErrorMessage(err, 'Não foi possível carregar a tradução.')
+        );
+      },
     });
   }
 
   /**
-   * Simula o progresso da tradução para feedback visual
+   * The server translates one batch per request, so the page drives the job:
+   * it asks for the next batch until the status is "done".
    */
-  private simulateTranslationProgress(): void {
-    if (!this.translationProgress) return;
-
-    const totalSteps = Math.min(this.subtitles.length, 20); // Máximo 20 steps para performance
-    const stepDuration = 100; // ms entre cada step
-    let currentStep = 0;
-
-    const progressInterval = setInterval(() => {
-      if (!this.translationProgress || !this.isTranslating) {
-        clearInterval(progressInterval);
-        return;
-      }
-
-      currentStep++;
-      const percentage = Math.min((currentStep / totalSteps) * 90, 90); // Máximo 90% até receber resposta real
-      
-      this.translationProgress.current = Math.floor((percentage / 100) * this.subtitles.length);
-      this.translationProgress.percentage = Math.floor(percentage);
-
-      try { 
-        this.cdr.detectChanges(); 
-      } catch (e) { 
-        /* ignore */ 
-      }
-
-      if (currentStep >= totalSteps) {
-        clearInterval(progressInterval);
-      }
-    }, stepDuration);
+  private startLoop(): void {
+    if (this.running || this.destroyed) return;
+    this.running = true;
+    this.failures = 0;
+    this.paused.set(false);
+    this.loopStartedAt = Date.now();
+    this.doneAtLoopStart = this.progress().done;
+    this.step();
   }
 
-  downloadTranslatedSRT(): void {
-    if (this.translatedSrtContent) {
-      const newFileName = this.fileName.replace('.srt', '_pt-br.srt');
-      this.subtitleService.downloadSRT(this.translatedSrtContent, newFileName);
-    }
-  }
-
-  goBack(): void {
-    this.router.navigate(['/upload']);
-  }
-
-  getLanguageName(code: string): string {
-    const languages: { [key: string]: string } = {
-      'en': 'Inglês',
-      'es': 'Espanhol',
-      'fr': 'Francês',
-      'de': 'Alemão',
-      'it': 'Italiano',
-      'pt': 'Português',
-      'ru': 'Russo',
-      'ja': 'Japonês',
-      'ko': 'Coreano',
-      'zh': 'Chinês',
-      'ar': 'Árabe'
-    };
-    return languages[code] || code;
-  }
-
-  /**
-   * Sincroniza o scroll entre as duas listas de legendas com otimizações para performance
-   */
-  onScroll(event: Event, source: 'original' | 'translated'): void {
-    // Evita loop infinito quando o scroll é programático
-    if (this.isScrollingSynced) {
-      return;
-    }
-
-    const currentTime = Date.now();
-    
-    // Throttling: limita a frequência de execução para evitar tremida
-    if (currentTime - this.lastScrollTime < 16) { // ~60fps
-      return;
-    }
-    
-    this.lastScrollTime = currentTime;
-
-    // Cancela animações e timeouts anteriores se existirem
-    if (this.scrollAnimationFrame) {
-      cancelAnimationFrame(this.scrollAnimationFrame);
-    }
-
-    if (this.scrollTimeout) {
-      clearTimeout(this.scrollTimeout);
-    }
-
-    if (this.scrollEndTimeout) {
-      clearTimeout(this.scrollEndTimeout);
-    }
-
-    const target = event.target as HTMLDivElement;
-    
-    // Usa requestAnimationFrame para sincronização suave
-    this.scrollAnimationFrame = requestAnimationFrame(() => {
-      this.performScrollSync(target, source);
+  private step(): void {
+    if (this.destroyed) return;
+    this.api.translateNext(this.jobId).subscribe({
+      next: result => {
+        this.failures = 0;
+        if (result.cues.length) this.mergeCues(result.cues);
+        this.job.update(j => (j ? { ...j, status: result.status, progress: result.progress } : j));
+        if (result.status === 'translating') this.step();
+        else this.running = false;
+      },
+      error: (err: unknown) => {
+        if (err instanceof HttpErrorResponse && err.status === 404) {
+          this.running = false;
+          this.loadError.set('Esta tradução não existe mais. Envie o arquivo de novo.');
+          return;
+        }
+        this.failures++;
+        if (this.failures >= MAX_FAILURES) {
+          this.running = false;
+          this.paused.set(true);
+          return;
+        }
+        // Transient failure: wait a little longer each time, then try the same batch again.
+        this.retryTimer = setTimeout(() => this.step(), 1000 * 2 ** (this.failures - 1));
+      },
     });
-
-    // Detecta quando o scroll termina para reset definitivo
-    this.scrollEndTimeout = setTimeout(() => {
-      this.isScrollingSynced = false;
-    }, 100);
   }
 
-  /**
-   * Executa a sincronização de scroll de forma otimizada
-   */
-  private performScrollSync(target: HTMLDivElement, source: 'original' | 'translated'): void {
-    // Evita execução se já estiver sincronizando
-    if (this.isScrollingSynced) {
-      return;
-    }
-
-    const scrollTop = target.scrollTop;
-    const scrollHeight = target.scrollHeight;
-    const clientHeight = target.clientHeight;
-    
-    // Verifica se há conteúdo para fazer scroll
-    if (scrollHeight <= clientHeight) {
-      return;
-    }
-
-    const scrollPercentage = scrollTop / (scrollHeight - clientHeight);
-
-    // Marca que estamos fazendo scroll sincronizado
-    this.isScrollingSynced = true;
-
-    // Define qual elemento será sincronizado
-    let targetElement: HTMLDivElement;
-    
-    if (source === 'original' && this.translatedList) {
-      targetElement = this.translatedList.nativeElement;
-    } else if (source === 'translated' && this.originalList) {
-      targetElement = this.originalList.nativeElement;
-    } else {
-      this.isScrollingSynced = false;
-      return;
-    }
-
-    // Calcula a nova posição de scroll
-    const targetScrollHeight = targetElement.scrollHeight - targetElement.clientHeight;
-    
-    // Verifica se o elemento alvo tem conteúdo para scroll
-    if (targetScrollHeight > 0) {
-      const newScrollTop = scrollPercentage * targetScrollHeight;
-      
-      // Aplica o scroll de forma suave
-      targetElement.scrollTo({
-        top: newScrollTop,
-        behavior: 'auto' // Usa 'auto' para performance, 'smooth' pode causar conflitos
-      });
-    }
-
-    // Reset do flag de forma mais rápida e eficiente
-    this.scrollTimeout = setTimeout(() => {
-      this.isScrollingSynced = false;
-      this.scrollAnimationFrame = null;
-    }, 10); // Reduzido de 50ms para 10ms para responsividade
+  /** Continues a translation that paused after network errors. */
+  resume(): void {
+    this.startLoop();
   }
 
-  /**
-   * Define o índice do item em hover para destaque sincronizado
-   */
-  setHoveredIndex(index: number): void {
-    this.hoveredIndex = index;
+  private mergeCues(updates: JobCue[]): void {
+    const next = [...this.cues()];
+    for (const u of updates) next[u.position] = u;
+    this.cues.set(next);
   }
 
-  /**
-   * Limpa o destaque quando o mouse sai do item
-   */
-  clearHoveredIndex(): void {
-    this.hoveredIndex = null;
+  setFilter(f: Filter): void {
+    this.filter.set(this.filter() === f ? 'all' : f);
+  }
+
+  /** Saves an edited translation when the textarea loses focus. */
+  save(cue: JobCue, textarea: HTMLTextAreaElement): void {
+    const value = textarea.value.trim();
+    if (!value) {
+      textarea.value = cue.translation ?? '';
+      return;
+    }
+    if (value === (cue.translation ?? '').trim()) return;
+
+    this.setSaveState(cue.position, 'saving');
+    this.api.editCue(this.jobId, cue.position, value).subscribe({
+      next: updated => {
+        this.mergeCues([updated]);
+        this.setSaveState(cue.position, 'saved');
+      },
+      error: err => {
+        this.setSaveState(cue.position, 'error');
+        this.actionError.set(apiErrorMessage(err, 'Não foi possível salvar a correção.'));
+      },
+    });
+  }
+
+  revert(cue: JobCue, textarea: HTMLTextAreaElement): void {
+    textarea.value = cue.translation ?? '';
+    textarea.blur();
+  }
+
+  retry(): void {
+    this.actionError.set(null);
+    this.api.retry(this.jobId).subscribe({
+      next: count => {
+        if (count > 0) {
+          this.job.update(j => (j ? { ...j, status: 'translating' } : j));
+          this.startLoop();
+        }
+      },
+      error: err => this.actionError.set(apiErrorMessage(err, 'Não foi possível tentar de novo.')),
+    });
+  }
+
+  downloadUrl(): string {
+    return this.api.downloadUrl(this.jobId);
+  }
+
+  rows(text: string | null): number {
+    return Math.max(2, (text ?? '').split('\n').length);
+  }
+
+  shortTime(ts: string): string {
+    return ts.replace(/^00:/, '').replace(/,\d+$/, '');
+  }
+
+  private setSaveState(position: number, state: SaveState): void {
+    this.saveState.update(s => ({ ...s, [position]: state }));
+    if (state === 'saved') {
+      setTimeout(() => {
+        this.saveState.update(s => {
+          if (s[position] !== 'saved') return s;
+          const { [position]: _, ...rest } = s;
+          return rest;
+        });
+      }, 2500);
+    }
   }
 }

@@ -12,7 +12,7 @@ import { LoadingComponent } from './components/loading/loading.component';
       <header class="header">
         <div class="header-content">
           <h1>🎬 Subtitle Translator</h1>
-          <p>Traduza suas legendas para Português</p>
+          <p>Legendas .srt do inglês para o português (BR)</p>
         </div>
       </header>
       <main class="main-container">
@@ -42,6 +42,7 @@ import { LoadingComponent } from './components/loading/loading.component';
     }
     .header h1 {
       margin: 0;
+      color: white;
       font-size: 2.5rem;
       font-weight: 300;
     }
@@ -56,6 +57,12 @@ import { LoadingComponent } from './components/loading/loading.component';
       max-width: 1200px;
       margin: 0 auto;
       width: 100%;
+    }
+    @media (max-width: 720px) {
+      .header { padding: 1rem 0; }
+      .header h1 { font-size: 1.5rem; }
+      .header p { font-size: 0.9rem; }
+      .main-container { padding: 1rem; }
     }
   `]
 })

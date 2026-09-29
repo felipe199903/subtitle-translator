@@ -1,248 +1,88 @@
-import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Injectable, inject } from '@angular/core';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { Observable, map } from 'rxjs';
 import { environment } from '../../environments/environment';
 
-export interface SubtitleItem {
+export type CueWarning = 'untranslated' | 'long_line' | 'fast_reading' | 'fallback_provider';
+export type CueSource = 'user' | 'memory' | 'provider' | 'fallback' | 'none';
+export type JobStatus = 'translating' | 'done' | 'error';
+
+export interface JobCue {
+  position: number;
   index: number;
-  startTime: string;
-  endTime: string;
+  start: string;
+  end: string;
   text: string;
-  translatedText?: string;
+  translation: string | null;
+  source: CueSource | null;
+  warnings: CueWarning[];
 }
 
-export interface UploadResponse {
-  success: boolean;
-  data: {
-    originalLanguage: string;
-    subtitles: SubtitleItem[];
-    totalSubtitles: number;
-  };
+export interface Job {
+  id: string;
+  fileName: string;
+  from: string;
+  to: string;
+  detectedLanguage: string;
+  parseWarnings: string[];
+  status: JobStatus;
+  error: string | null;
+  progress: { done: number; total: number };
+  warningCounts: Partial<Record<CueWarning, number>>;
+  createdAt: number;
+  cues: JobCue[];
 }
 
-export interface TranslationResponse {
-  success: boolean;
-  data: {
-    translatedSubtitles: SubtitleItem[];
-    srtContent: string;
-    targetLanguage: string;
-  };
+/** Result of one translation step: the cues it finished and the overall state. */
+export interface TranslateStep {
+  status: JobStatus;
+  progress: { done: number; total: number };
+  cues: JobCue[];
 }
 
-// Training-related interfaces
-export interface TrainingUploadResponse {
-  success: boolean;
-  data: {
-    sessionId: string;
-    totalFiles: number;
-    status: string;
-  };
+/** The API runs as a Vercel Function, which accepts bodies up to 4.5 MB. */
+export const MAX_FILE_BYTES = 4 * 1024 * 1024;
+
+/** Extracts the API's Portuguese error message from an HTTP error. */
+export function apiErrorMessage(err: unknown, fallback = 'Algo deu errado. Tente novamente.'): string {
+  if (err instanceof HttpErrorResponse) {
+    if (err.status === 0) return 'Não foi possível falar com o servidor. Verifique se ele está rodando.';
+    if (typeof err.error?.error === 'string') return err.error.error;
+  }
+  return fallback;
 }
 
-export interface TrainingProgressResponse {
-  success: boolean;
-  data: {
-    sessionId: string;
-    status: string;
-    totalFiles: number;
-    processedFiles: number;
-    currentFile: string;
-    detailedStats?: {
-      totalSubtitles: number;
-      translatedFromTM: number;
-      translatedFromDict: number;
-      translatedFromAPI: number;
-      skippedSubtitles: number;
-      uniqueLanguages: string[];
-      translationBreakdown: Array<{
-        method: string;
-        count: number;
-      }>;
-    };
-  };
-}
-
-export interface AnalysisResponse {
-  success: boolean;
-  data: {
-    sessionId: string;
-    summary: {
-      totalFiles: number;
-      totalSubtitles: number;
-      uniquePhrases: number;
-      languageDistribution: { [key: string]: number };
-      recommendations: string[];
-    };
-    dictionaryCandidates: Array<{
-      originalPhrase: string;
-      translatedPhrase: string;
-      frequency: number;
-      confidence: number;
-      sourceFiles: string[];
-    }>;
-  };
-}
-
-export interface ImprovementResponse {
-  success: boolean;
-  data: {
-    appliedEntries: number;
-    skippedEntries: number;
-    newDictionarySize: number;
-    newTMEntries: number;
-    summary: string;
-  };
-}
-
-export interface SystemMetricsResponse {
-  success: boolean;
-  data: {
-    timestamp: string;
-    translationMemory: {
-      totalEntries: number;
-      recentEntries: number;
-      highConfidenceEntries: number;
-    };
-    dictionary: {
-      totalPhrases: number;
-      phrasesByLength: {
-        single: number;
-        multi: number;
-      };
-    };
-    training: {
-      totalSessions: number;
-      totalFilesProcessed: number;
-      totalPhrasesLearned: number;
-      lastTrainingDate: string | null;
-    };
-    performance: {
-      tmIndexSize: number;
-      averageTranslationMethods: {
-        tmHitRate: string;
-        dictHitRate: string;
-        apiUsageRate: string;
-        skipRate: string;
-      } | null;
-    };
-    systemHealth: {
-      tmDatabase: 'healthy' | 'needs_data';
-      dictionary: 'healthy' | 'needs_expansion';
-      trainingData: 'trained' | 'not_trained';
-    };
-    recommendations: string[];
-  };
-}
-
-export interface TrainingComparisonResponse {
-  success: boolean;
-  data: {
-    before: {
-      totalSubtitles: number;
-      tmHitRate: number;
-      dictHitRate: number;
-      apiUsageRate: number;
-      skipRate: number;
-    };
-    after: {
-      totalSubtitles: number;
-      tmHitRate: number;
-      dictHitRate: number;
-      apiUsageRate: number;
-      skipRate: number;
-    };
-    improvement: {
-      tmHitRateImprovement: number;
-      dictHitRateImprovement: number;
-      apiUsageReduction: number;
-      overallImprovement: number;
-    };
-    summary: string;
-  };
-}
-
-@Injectable({
-  providedIn: 'root'
-})
+@Injectable({ providedIn: 'root' })
 export class SubtitleService {
-  private apiUrl = environment.apiUrl;
+  private http = inject(HttpClient);
+  private api = environment.apiUrl;
 
-  constructor(private http: HttpClient) {}
-
-  uploadSubtitle(file: File): Observable<UploadResponse> {
-    const formData = new FormData();
-    formData.append('srtFile', file);
-
-    return this.http.post<UploadResponse>(`${this.apiUrl}/upload`, formData);
+  createJob(file: File): Observable<Job> {
+    const form = new FormData();
+    form.append('file', file);
+    return this.http.post<{ data: Job }>(`${this.api}/jobs`, form).pipe(map(r => r.data));
   }
 
-  translateSubtitle(subtitles: SubtitleItem[], targetLanguage: string = 'pt-BR'): Observable<TranslationResponse> {
-    const body = {
-      subtitles,
-      targetLanguage
-    };
-
-    return this.http.post<TranslationResponse>(`${this.apiUrl}/translate-text`, body);
+  getJob(id: string): Observable<Job> {
+    return this.http.get<{ data: Job }>(`${this.api}/jobs/${id}`).pipe(map(r => r.data));
   }
 
-  getSupportedLanguages(): Observable<any> {
-    return this.http.get(`${this.apiUrl}/languages`);
+  /** Translates the next batch of pending cues. Call repeatedly until the status is "done". */
+  translateNext(id: string): Observable<TranslateStep> {
+    return this.http.post<{ data: TranslateStep }>(`${this.api}/jobs/${id}/translate`, {}).pipe(map(r => r.data));
   }
 
-  downloadSRT(content: string, filename: string): void {
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
+  editCue(id: string, position: number, translation: string): Observable<JobCue> {
+    return this.http
+      .patch<{ data: { cue: JobCue } }>(`${this.api}/jobs/${id}/cues/${position}`, { translation })
+      .pipe(map(r => r.data.cue));
   }
 
-  // Training Methods
-  batchUploadForTraining(files: FileList): Observable<TrainingUploadResponse> {
-    const formData = new FormData();
-    
-    // Add all selected files to FormData
-    for (let i = 0; i < files.length; i++) {
-      formData.append('srtFiles', files[i]);
-    }
-
-    return this.http.post<TrainingUploadResponse>(`${this.apiUrl}/batch-upload`, formData);
+  retry(id: string): Observable<number> {
+    return this.http.post<{ data: { retrying: number } }>(`${this.api}/jobs/${id}/retry`, {}).pipe(map(r => r.data.retrying));
   }
 
-  getTrainingStatus(sessionId: string): Observable<TrainingProgressResponse> {
-    return this.http.get<TrainingProgressResponse>(`${this.apiUrl}/training-status/${sessionId}`);
-  }
-
-  analyzeTrainingResults(sessionId: string): Observable<AnalysisResponse> {
-    return this.http.post<AnalysisResponse>(`${this.apiUrl}/analyze-training`, { sessionId });
-  }
-
-  improveDictionaryFromResults(
-    sessionId: string, 
-    selectedCandidates: Array<{
-      originalPhrase: string;
-      translatedPhrase: string;
-      frequency: number;
-    }>
-  ): Observable<ImprovementResponse> {
-    return this.http.post<ImprovementResponse>(`${this.apiUrl}/improve-dictionary`, {
-      sessionId,
-      selectedCandidates
-    });
-  }
-
-  getSystemMetrics(): Observable<SystemMetricsResponse> {
-    return this.http.get<SystemMetricsResponse>(`${this.apiUrl}/system-metrics`);
-  }
-
-  compareTrainingImpact(beforeSessionId: string, afterSessionId: string): Observable<TrainingComparisonResponse> {
-    return this.http.post<TrainingComparisonResponse>(`${this.apiUrl}/compare-training-impact`, {
-      beforeSessionId,
-      afterSessionId
-    });
+  downloadUrl(id: string): string {
+    return `${this.api}/jobs/${id}/download`;
   }
 }
