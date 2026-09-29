@@ -1,39 +1,22 @@
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import dotenv from 'dotenv';
-import subtitleRoutes from './routes/subtitleRoutes';
-import { errorHandler } from './middleware/errorHandler';
+// Local development server. On Vercel the app is served by /api/index.ts instead.
+import fs from 'fs';
+import path from 'path';
 
-dotenv.config();
+// Load .env / .env.local (e.g. from `vercel env pull .env.local`) without extra dependencies.
+for (const file of ['.env.local', '.env']) {
+  for (const dir of [process.cwd(), path.resolve(__dirname, '../../..')]) {
+    const p = path.join(dir, file);
+    if (fs.existsSync(p)) process.loadEnvFile(p);
+  }
+}
+process.env.FRONTEND_URL ??= 'http://localhost:4200';
+// Without DATABASE_URL, keep local data in an embedded Postgres folder (git-ignored).
+process.env.PGLITE_DIR ??= path.resolve(__dirname, '../.data/pglite');
 
-const app = express();
-const PORT = process.env.PORT || 3001;
-
-// Middleware
-app.use(helmet());
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:4200',
-  credentials: true
-}));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Routes
-app.use('/api/subtitles', subtitleRoutes);
-
-// Health check
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'OK', message: 'Subtitle Translator API is running' });
+import('./app').then(({ createApp }) => {
+  const PORT = process.env.PORT || 3001;
+  createApp().listen(PORT, () => {
+    const db = process.env.DATABASE_URL ? 'Neon Postgres (DATABASE_URL)' : 'PGlite local (packages/backend/.data)';
+    console.log(`🚀 API em http://localhost:${PORT} · banco: ${db}`);
+  });
 });
-
-// Error handling middleware
-app.use(errorHandler);
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📝 API Documentation: http://localhost:${PORT}/api/subtitles`);
-});
-
-export default app;
-// restart

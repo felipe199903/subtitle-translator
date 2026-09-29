@@ -1,72 +1,44 @@
+const STOPWORDS: Record<string, string[]> = {
+  en: ['the', 'and', 'you', 'that', 'is', 'to', 'of', 'it', 'what', 'this', 'we', 'are', 'have', 'don\'t', 'i\'m', 'with', 'your', 'just'],
+  pt: ['que', 'não', 'você', 'para', 'com', 'uma', 'um', 'é', 'eu', 'isso', 'está', 'mas', 'por', 'se', 'meu', 'ele', 'vou', 'aqui'],
+  es: ['que', 'no', 'el', 'la', 'es', 'y', 'en', 'lo', 'un', 'por', 'qué', 'me', 'una', 'te', 'los', 'se', 'está', 'pero'],
+  fr: ['je', 'de', 'est', 'pas', 'le', 'vous', 'la', 'tu', 'que', 'un', 'il', 'et', 'ce', 'ne', 'les', 'on', 'une', 'c\'est'],
+  de: ['der', 'die', 'und', 'ich', 'das', 'ist', 'nicht', 'du', 'es', 'sie', 'wir', 'zu', 'ein', 'mit', 'was', 'den', 'auf', 'mir'],
+  it: ['che', 'non', 'di', 'il', 'è', 'la', 'un', 'per', 'mi', 'sono', 'ma', 'ti', 'cosa', 'lo', 'questo', 'una', 'bene', 'come'],
+};
+
+const NAMES: Record<string, string> = {
+  en: 'Inglês', pt: 'Português', es: 'Espanhol', fr: 'Francês', de: 'Alemão', it: 'Italiano',
+};
+
 export class LanguageDetectionService {
-  private supportedLanguages = {
-    'en': 'English',
-    'es': 'Spanish',
-    'fr': 'French',
-    'de': 'German',
-    'it': 'Italian',
-    'pt': 'Portuguese',
-    'ru': 'Russian',
-    'ja': 'Japanese',
-    'ko': 'Korean',
-    'zh': 'Chinese',
-    'ar': 'Arabic'
-  };
+  /**
+   * Scores each language by the share of words that are among its most common
+   * words and returns the best one, or 'unknown' when nothing stands out.
+   */
+  detectLanguage(text: string): string {
+    const words = text
+      .toLowerCase()
+      .replace(/<[^>]+>/g, ' ')
+      .split(/[^\p{L}']+/u)
+      .filter(Boolean)
+      .slice(0, 5000);
+    if (words.length === 0) return 'unknown';
 
-  async detectLanguage(text: string): Promise<string> {
-    try {
-      // Simple language detection based on common words and patterns
-      // In a production environment, you would use a proper language detection library
-      const lowercaseText = text.toLowerCase();
-      
-      // English patterns
-      if (this.containsWords(lowercaseText, ['the', 'and', 'you', 'that', 'was', 'for', 'are', 'with', 'his', 'they'])) {
-        return 'en';
+    let best = 'unknown';
+    let bestScore = 0;
+    for (const [lang, list] of Object.entries(STOPWORDS)) {
+      const set = new Set(list);
+      const score = words.filter(w => set.has(w)).length / words.length;
+      if (score > bestScore) {
+        best = lang;
+        bestScore = score;
       }
-      
-      // Spanish patterns
-      if (this.containsWords(lowercaseText, ['que', 'de', 'no', 'la', 'el', 'en', 'y', 'es', 'se', 'te'])) {
-        return 'es';
-      }
-      
-      // Portuguese patterns
-      if (this.containsWords(lowercaseText, ['que', 'de', 'não', 'você', 'para', 'com', 'uma', 'é', 'eu', 'ser'])) {
-        return 'pt';
-      }
-      
-      // French patterns
-      if (this.containsWords(lowercaseText, ['que', 'de', 'je', 'est', 'pas', 'le', 'vous', 'la', 'tu', 'il'])) {
-        return 'fr';
-      }
-      
-      // German patterns
-      if (this.containsWords(lowercaseText, ['der', 'die', 'und', 'in', 'den', 'von', 'zu', 'das', 'mit', 'sich'])) {
-        return 'de';
-      }
-      
-      // Italian patterns
-      if (this.containsWords(lowercaseText, ['che', 'di', 'la', 'il', 'e', 'per', 'una', 'in', 'con', 'non'])) {
-        return 'it';
-      }
-
-      // Default to English if no pattern matches
-      return 'en';
-    } catch (error) {
-      console.error('Error detecting language:', error);
-      return 'en'; // Default fallback
     }
-  }
-
-  private containsWords(text: string, words: string[]): boolean {
-    const wordCount = words.filter(word => text.includes(` ${word} `) || text.startsWith(`${word} `) || text.endsWith(` ${word}`)).length;
-    return wordCount >= 3; // Require at least 3 matching words
-  }
-
-  getSupportedLanguages(): Record<string, string> {
-    return this.supportedLanguages;
+    return bestScore >= 0.05 ? best : 'unknown';
   }
 
   getLanguageName(code: string): string {
-    return this.supportedLanguages[code as keyof typeof this.supportedLanguages] || 'Unknown';
+    return NAMES[code] ?? 'Desconhecido';
   }
 }
