@@ -1,0 +1,14 @@
+{
+  "name": "@subtitle-translator/auto",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Serviço que traduz automaticamente legendas EN → PT-BR na biblioteca do servidor de mídia (reusa o backend).",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --experimental-vm-modules --no-warnings=ExperimentalWarning ../../node_modules/jest/bin/jest.js --config jest.config.js"
+  },
+  "dependencies": {
+    "tsx": "^4.23.15"
+  }
+}
