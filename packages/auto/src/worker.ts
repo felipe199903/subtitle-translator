@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import { parseSrt, serializeSrt } from '../../backend/src/srt/SrtParser';
+import { Cue, parseSrt, serializeSrt } from '../../backend/src/srt/SrtParser';
+import { assToCues } from './ass';
 import { TranslationPipeline } from '../../backend/src/translation/TranslationPipeline';
 import { TranslationProvider, sleep } from '../../backend/src/translation/TranslationProvider';
 import {
@@ -20,15 +21,32 @@ import { FileRow, StateRepository } from './state';
 
 const DAY_MS = 86_400_000;
 
+/** How many texts were sent to a provider and how many came back empty (per file). */
+export class ProviderStats {
+  sent = 0;
+  failed = 0;
+  reset() {
+    this.sent = this.failed = 0;
+  }
+  get failRatio() {
+    return this.sent ? this.failed / this.sent : 0;
+  }
+}
+
 /** Waits before every request, so the free endpoint sees a slow, steady trickle. */
 export class PacedProvider implements TranslationProvider {
   readonly name: string;
-  constructor(private inner: TranslationProvider, private delayMs: number) {
+  constructor(private inner: TranslationProvider, private delayMs: number, private stats?: ProviderStats) {
     this.name = inner.name;
   }
   async translateBatch(texts: string[], from: string, to: string) {
     await sleep(this.delayMs);
-    return this.inner.translateBatch(texts, from, to);
+    const out = await this.inner.translateBatch(texts, from, to);
+    if (this.stats) {
+      this.stats.sent += texts.length;
+      this.stats.failed += out.filter(t => t == null).length;
+    }
+    return out;
   }
 }
 
@@ -36,7 +54,12 @@ export class AutoTranslator {
   lastScanAt: Date | null = null;
   running = false;
 
-  constructor(private state: StateRepository, private pipeline: TranslationPipeline) {}
+  constructor(
+    private state: StateRepository,
+    private pipeline: TranslationPipeline,
+    /** Counters of the primary (Google) provider, to tell a refusal apart from unchanged cues. */
+    private primaryStats: ProviderStats
+  ) {}
 
   /** Looks at the video and the files next to it right now and decides what to do. */
   private async evaluate(
@@ -171,18 +194,23 @@ export class AutoTranslator {
     const attempt = row.attempts + 1;
     try {
       const [kind, ref] = splitSource(decision.source);
-      const raw = kind === 'external' ? await fs.readFile(ref) : await extractSubtitle(row.video, Number(ref));
-      const { cues } = parseSrt(raw);
+      const cues = await this.loadCues(row.video, kind, ref, probe);
       if (!cues.length) {
         await this.state.upsertMany([{ ...this.nextRow(video, row, { status: 'no_english' }, probe), detail: 'legenda em inglês vazia' }]);
         return 'skipped';
       }
-
-      const results = await this.pipeline.translate(cues, { from: 'en', to: 'pt-BR', concurrency: 1 });
-      const untranslated = results.filter(r => r.warnings.includes('untranslated')).length;
-      if (untranslated / cues.length > config.maxUntranslatedRatio) {
-        return await this.fail(row, video, probe, attempt, `${untranslated}/${cues.length} falas sem tradução (tradutor limitando?)`, true);
+      if (cues.length > config.maxCues) {
+        // Effects/karaoke track, not dialogue: translating it would take hours for nothing.
+        return await this.fail(row, video, probe, config.maxAttempts, `${cues.length} falas: não parece diálogo (legenda de efeitos)`, false);
       }
+
+      this.primaryStats.reset();
+      const results = await this.pipeline.translate(cues, { from: 'en', to: 'pt-BR', concurrency: 1 });
+      if (this.primaryStats.failRatio > config.maxProviderFailRatio) {
+        const pct = Math.round(this.primaryStats.failRatio * 100);
+        return await this.fail(row, video, probe, attempt, `Google não respondeu ${pct}% dos pedidos (limite atingido?)`, true);
+      }
+      const untranslated = results.filter(r => r.warnings.includes('untranslated')).length;
 
       const target = mtFileName(row.video);
       const tmp = `${target}.tmp`;
@@ -199,11 +227,23 @@ export class AutoTranslator {
           detail: `fonte: ${kind === 'external' ? path.basename(ref) : `faixa embutida #${ref}`}`,
         },
       ]);
+      await this.state.setMeta('cooldown_streak', '0');
       log(`Traduzida (${cues.length} falas, ${Math.round((Date.now() - started) / 1000)}s):`, target);
       return 'translated';
     } catch (e) {
       return this.fail(row, video, probe, attempt, (e as Error).message, false);
     }
+  }
+
+  /** English cues from an external .srt or an embedded track (ASS read directly, dialogue only). */
+  private async loadCues(videoPath: string, kind: string, ref: string, probe: ProbeStream[] | null): Promise<Cue[]> {
+    if (kind === 'external') return parseSrt(await fs.readFile(ref)).cues;
+    const index = Number(ref);
+    const codec = (probe?.find(s => s.index === index)?.codec_name || '').toLowerCase();
+    if (codec === 'ass' || codec === 'ssa') {
+      return assToCues((await extractSubtitle(videoPath, index, 'ass')).toString('utf8'));
+    }
+    return parseSrt(await extractSubtitle(videoPath, index, 'srt')).cues;
   }
 
   private async fail(
@@ -214,6 +254,24 @@ export class AutoTranslator {
     reason: string,
     translatorRefusing: boolean
   ): Promise<'skipped' | 'stop'> {
+    if (translatorRefusing) {
+      // Not the file's fault: keep it in the queue without spending an attempt.
+      await this.state.upsertMany([
+        {
+          ...this.nextRow(video, row, { status: 'pending', source: row.source ?? undefined }, probe),
+          detail: `aguardando o Google liberar: ${reason}`.slice(0, 500),
+        },
+      ]);
+      // Consecutive refusals double the pause (6 h → 12 h → 24 h); a success resets it.
+      const streak = Number((await this.state.getMeta('cooldown_streak')) ?? 0) + 1;
+      const hours = Math.min(config.cooldownHours * 2 ** (streak - 1), 24);
+      const until = new Date(Date.now() + hours * 3_600_000);
+      await this.state.setMeta('cooldown_streak', String(streak));
+      await this.state.setMeta('cooldown_until', until.toISOString());
+      log(`Tradutor recusando (${reason}) em`, row.video, `- pausando ${hours} h, até ${until.toLocaleString('sv-SE')}.`);
+      return 'stop';
+    }
+
     const final = attempt >= config.maxAttempts;
     await this.state.upsertMany([
       {
@@ -224,11 +282,7 @@ export class AutoTranslator {
       },
     ]);
     log(`Falha (tentativa ${attempt}/${config.maxAttempts}):`, row.video, '-', reason);
-    if (!translatorRefusing) return 'skipped';
-    const until = new Date(Date.now() + config.cooldownHours * 3_600_000);
-    await this.state.setMeta('cooldown_until', until.toISOString());
-    log(`Pausando traduções até ${until.toLocaleString('sv-SE')}.`);
-    return 'stop';
+    return 'skipped';
   }
 }
 

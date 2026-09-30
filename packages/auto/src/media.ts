@@ -49,9 +49,14 @@ export async function probeStreams(file: string): Promise<ProbeStream[]> {
   return JSON.parse(stdout).streams ?? [];
 }
 
-/** Extracts an embedded subtitle stream as SRT text (ffmpeg converts ASS/WebVTT). */
-export async function extractSubtitle(file: string, streamIndex: number): Promise<Buffer> {
-  const { stdout } = await run('ffmpeg', ['-v', 'error', '-i', file, '-map', `0:${streamIndex}`, '-f', 'srt', '-'], {
+/**
+ * Extracts an embedded subtitle stream. ASS/SSA is copied as-is (so signs and karaoke can
+ * be filtered by style); other text formats are converted to SRT by ffmpeg.
+ */
+export async function extractSubtitle(file: string, streamIndex: number, format: 'srt' | 'ass'): Promise<Buffer> {
+  const args = ['-v', 'error', '-i', file, '-map', `0:${streamIndex}`];
+  args.push(...(format === 'ass' ? ['-c:s', 'copy', '-f', 'ass'] : ['-f', 'srt']), '-');
+  const { stdout } = await run('ffmpeg', args, {
     timeout: 10 * 60_000,
     maxBuffer: 50 * 1024 * 1024,
     encoding: 'buffer',

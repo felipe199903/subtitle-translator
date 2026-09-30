@@ -17,7 +17,10 @@ A cada varredura (padrão: 6 h), para cada vídeo nas pastas de mídia:
 | Sem inglês / inglês só em imagem (PGS) | `no_english` / `image_only` |
 | Falhou `MAX_ATTEMPTS` vezes | `failed` |
 
-A cada ciclo (padrão: 30 min) traduz até `FILES_PER_CYCLE` vídeos da fila, dos mais novos para os mais antigos, respeitando `DAILY_LIMIT` por dia e esperando `REQUEST_DELAY_MS` antes de cada pedido ao Google. Se mais de 25% das falas voltarem sem tradução (sinal de que o Google está recusando), **não grava nada** e pausa por `COOLDOWN_HOURS`.
+A cada ciclo (padrão: 30 min) traduz até `FILES_PER_CYCLE` vídeos da fila, dos mais novos para os mais antigos, respeitando `DAILY_LIMIT` por dia e esperando `REQUEST_DELAY_MS` antes de cada pedido ao Google.
+
+- **Faixas ASS (anime):** são lidas direto, mantendo só os estilos de diálogo. Letreiros, karaokê (`OP_EN`, `ED-Romaji`, `Signs`…), desenhos vetoriais e linhas animadas quadro a quadro são descartados. Um episódio que o ffmpeg convertia em 28 mil "falas" fica com as ~400 de diálogo. Acima de `MAX_CUES` falas o arquivo é pulado (não é diálogo).
+- **Recusa do Google:** se mais de `MAX_PROVIDER_FAIL_RATIO` dos pedidos voltarem vazios (HTTP 429 etc.), **não grava nada**, devolve o vídeo para a fila sem gastar tentativa e pausa por `COOLDOWN_HOURS`, dobrando a cada recusa seguida (6 h → 12 h → 24 h) até a próxima tradução bem-sucedida. Falas que simplesmente ficam iguais (nomes, "Hmm") não contam como recusa.
 
 ## Nome do arquivo
 
@@ -43,7 +46,9 @@ A cada ciclo (padrão: 30 min) traduz até `FILES_PER_CYCLE` vídeos da fila, do
 | `SCAN_HOURS` | 6 | Intervalo entre varreduras completas |
 | `WAIT_DAYS` | 3 | Espera após o vídeo chegar |
 | `REQUEST_DELAY_MS` | 3000 | Pausa antes de cada pedido ao tradutor |
-| `COOLDOWN_HOURS` / `MAX_ATTEMPTS` | 6 / 3 | Pausa quando o tradutor recusa / tentativas por arquivo |
+| `COOLDOWN_HOURS` / `MAX_ATTEMPTS` | 6 / 3 | Pausa inicial quando o tradutor recusa (dobra até 24 h) / tentativas por arquivo (erros do próprio arquivo) |
+| `MAX_PROVIDER_FAIL_RATIO` | 0.2 | Parcela de pedidos sem resposta do Google que caracteriza recusa |
+| `MAX_CUES` | 3000 | Acima disso o arquivo é pulado (legenda de efeitos, não diálogo) |
 | `MIN_VIDEO_MB` | 50 | Ignora amostras e extras |
 | `LOG_FILE` | vazio | Também grava o log neste arquivo |
 | `PORT` | 8787 | Página de status |
