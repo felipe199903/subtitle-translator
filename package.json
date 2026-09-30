@@ -5,13 +5,15 @@
   "private": true,
   "workspaces": [
     "packages/frontend",
-    "packages/backend"
+    "packages/backend",
+    "packages/auto"
   ],
   "scripts": {
     "dev": "concurrently -n api,web -c blue,magenta \"npm run dev --workspace packages/backend\" \"npm start --workspace packages/frontend\"",
     "build": "npm run build --workspace packages/frontend",
     "test": "npm test --workspace packages/backend && npm test --workspace packages/frontend -- --watch=false --browsers=ChromeHeadless",
     "test:backend": "npm test --workspace packages/backend",
+    "test:auto": "npm test --workspace packages/auto",
     "e2e:live": "npm run e2e:live --workspace packages/backend",
     "smoke": "npm run smoke --workspace packages/backend --"
   },
