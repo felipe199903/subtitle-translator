@@ -14,6 +14,8 @@ import { StateRepository } from './state';
 import { AutoTranslator, Engine, PacedProvider, ProviderStats } from './worker';
 
 async function main() {
+  // Subtitles stay editable by the media group (Samba, Bazarr), like the rest of the stack (UMASK=002).
+  process.umask(0o002);
   const localDb = pgliteDb(path.join(config.dataDir, 'pglite'));
   const memoryDb = config.memoryDatabaseUrl ? neonDb(config.memoryDatabaseUrl) : localDb;
   const state = new StateRepository(localDb);
