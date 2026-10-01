@@ -2,6 +2,9 @@ import { Db } from './client';
 
 export type MemoryOrigin = 'user' | 'mt';
 
+/** Longest key cached (well under the ~8 KB limit of a Postgres btree index row). */
+export const MAX_KEY_BYTES = 2000;
+
 export interface MemoryEntry {
   srcNorm: string;
   src: string;
@@ -32,8 +35,12 @@ export class MemoryRepository {
 
   /** Saves entries in one statement. A machine translation never overwrites a user correction. */
   async upsertMany(entries: MemoryEntry[]): Promise<void> {
-    // Within one statement a key may appear only once; the last entry wins.
-    const byKey = new Map(entries.map(e => [e.srcNorm, e]));
+    // Within one statement a key may appear only once; the last entry wins. Keys too long for
+    // the primary-key index (Postgres btree rows max ~8 KB) would fail the whole statement:
+    // such "cues" are not dialogue anyway (e.g. ASS vector drawings), so they are not cached.
+    const byKey = new Map(
+      entries.filter(e => Buffer.byteLength(e.srcNorm) <= MAX_KEY_BYTES).map(e => [e.srcNorm, e])
+    );
     const list = [...byKey.values()];
     if (!list.length) return;
     await this.db.query(

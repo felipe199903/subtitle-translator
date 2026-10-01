@@ -29,11 +29,13 @@ export const config = {
   /** Give up on a file after this many failed attempts. */
   maxAttempts: num('MAX_ATTEMPTS', 3),
   /**
-   * Accept a translation only if at most this share of cues came back unchanged. Names and
-   * interjections ("Naruto!", "Hmm") legitimately stay the same; when the translator refuses
-   * requests nearly every cue does, so 25% separates the two cases.
+   * The translator is considered to be refusing requests (pause, write nothing) when more
+   * than this share of the texts sent to Google came back empty. Cues that merely stay the
+   * same after translation (names, "Hmm", symbols) do not count.
    */
-  maxUntranslatedRatio: num('MAX_UNTRANSLATED_RATIO', 0.25),
+  maxProviderFailRatio: num('MAX_PROVIDER_FAIL_RATIO', 0.2),
+  /** More cues than this is not dialogue (effects/karaoke track): skip the file. */
+  maxCues: num('MAX_CUES', 3000),
   /** Ignore videos smaller than this (samples, extras). */
   minVideoMb: num('MIN_VIDEO_MB', 50),
   port: num('PORT', 8787),

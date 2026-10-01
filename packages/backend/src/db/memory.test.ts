@@ -36,6 +36,13 @@ describe('MemoryRepository', () => {
     expect(await memory.stats()).toEqual({ user: 0, mt: 3000 });
   });
 
+  it('skips keys too long for the index instead of failing the whole batch', async () => {
+    const huge = 'm 0 0 l '.repeat(1200); // ~9.6 KB, like an ASS vector drawing
+    await memory.upsertMany([entry(huge, 'x', 'mt'), entry('ok', 'saved', 'mt')]);
+    expect((await memory.lookupMany(['ok'])).get('ok')!.tgt).toBe('saved');
+    expect((await memory.lookupMany([huge])).size).toBe(0);
+  });
+
   it('ignores empty input', async () => {
     await memory.upsertMany([]);
     expect((await memory.lookupMany([])).size).toBe(0);

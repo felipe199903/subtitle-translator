@@ -10,18 +10,19 @@ import { config } from './config';
 import { log } from './log';
 import { startServer } from './server';
 import { StateRepository } from './state';
-import { AutoTranslator, PacedProvider } from './worker';
+import { AutoTranslator, PacedProvider, ProviderStats } from './worker';
 
 async function main() {
   const localDb = pgliteDb(path.join(config.dataDir, 'pglite'));
   const memoryDb = config.memoryDatabaseUrl ? neonDb(config.memoryDatabaseUrl) : localDb;
   const state = new StateRepository(localDb);
+  const googleStats = new ProviderStats();
   const pipeline = new TranslationPipeline(
     new MemoryRepository(memoryDb),
-    new PacedProvider(new GoogleFreeProvider(), config.requestDelayMs),
+    new PacedProvider(new GoogleFreeProvider(), config.requestDelayMs, googleStats),
     new PacedProvider(new MyMemoryProvider(), config.requestDelayMs)
   );
-  const worker = new AutoTranslator(state, pipeline);
+  const worker = new AutoTranslator(state, pipeline, googleStats);
 
   startServer(state, worker);
   log(
