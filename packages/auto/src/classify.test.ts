@@ -37,6 +37,14 @@ const sub = (index: number, language: string, codec = 'subrip', extra: Partial<P
   ...extra,
 });
 
+describe('test files', () => {
+  it('ignores engine comparison files written by try.ts', () => {
+    const s = sidecars('/m/Movie.mkv', ['Movie.mkv', 'Movie.pt-BR.Teste-Gemini.srt', 'Movie.en.srt']);
+    expect(s.ptHuman).toEqual([]);
+    expect(s.enSrt).toEqual(['/m/Movie.en.srt'.replace(/\//g, require('path').sep)]);
+  });
+});
+
 describe('embeddedInfo', () => {
   it('picks a full English text track over SDH and signs/songs', () => {
     const info = embeddedInfo([
@@ -46,6 +54,17 @@ describe('embeddedInfo', () => {
       sub(4, 'eng', 'ass'),
     ]);
     expect(info.enTextStream).toBe(4);
+  });
+
+  it('skips "S&S" and other signs tracks but keeps them as last alternatives', () => {
+    const info = embeddedInfo([
+      sub(3, 'eng', 'ass', { tags: { language: 'eng', title: 'S&S' } }),
+      sub(4, 'eng', 'ass', { tags: { language: 'eng', title: 'MTBB (Honorifics) Subs' } }),
+      sub(5, 'eng', 'ass', { tags: { language: 'eng', title: 'Dialog - ENG' }, disposition: { forced: 1 } }),
+      sub(6, 'eng', 'ass', { tags: { language: 'eng', title: 'TS' } }),
+    ]);
+    expect(info.enTextStream).toBe(4);
+    expect(info.enTextStreams).toEqual([4, 3, 6]);
   });
 
   it('reports image-only English (PGS) and Portuguese tracks/audio', () => {

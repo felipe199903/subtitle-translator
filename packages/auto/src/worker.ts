@@ -4,6 +4,7 @@ import { Cue, parseSrt, serializeSrt } from '../../backend/src/srt/SrtParser';
 import { assToCues } from './ass';
 import { TranslationPipeline } from '../../backend/src/translation/TranslationPipeline';
 import { TranslationProvider, sleep } from '../../backend/src/translation/TranslationProvider';
+import { GeminiProvider } from '../../backend/src/translation/GeminiProvider';
 import {
   Decision,
   EmbeddedInfo,
@@ -20,6 +21,8 @@ import { extractSubtitle, listVideos, probeStreams } from './media';
 import { FileRow, StateRepository } from './state';
 
 const DAY_MS = 86_400_000;
+/** Fewer dialogue cues than this in an embedded track means it is probably signs/songs only. */
+const MIN_DIALOGUE_CUES = 30;
 
 /** How many texts were sent to a provider and how many came back empty (per file). */
 export class ProviderStats {
@@ -50,6 +53,15 @@ export class PacedProvider implements TranslationProvider {
   }
 }
 
+/** The main translator, as the worker needs to know it. */
+export interface Engine {
+  /** Shown in logs and messages ("Gemini", "Google"). */
+  label: string;
+  /** Characters of text per request to the main translator. */
+  groupChars: number;
+  gemini?: GeminiProvider;
+}
+
 export class AutoTranslator {
   lastScanAt: Date | null = null;
   running = false;
@@ -57,8 +69,9 @@ export class AutoTranslator {
   constructor(
     private state: StateRepository,
     private pipeline: TranslationPipeline,
-    /** Counters of the primary (Google) provider, to tell a refusal apart from unchanged cues. */
-    private primaryStats: ProviderStats
+    /** Counters of the main provider, to tell a refusal apart from unchanged cues. */
+    private primaryStats: ProviderStats,
+    readonly engine: Engine
   ) {}
 
   /** Looks at the video and the files next to it right now and decides what to do. */
@@ -205,11 +218,19 @@ export class AutoTranslator {
       }
 
       this.primaryStats.reset();
-      const results = await this.pipeline.translate(cues, { from: 'en', to: 'pt-BR', concurrency: 1 });
+      const requestsBefore = this.geminiRequests();
+      const results = await this.pipeline.translate(cues, {
+        from: 'en',
+        to: 'pt-BR',
+        concurrency: 1,
+        groupChars: this.engine.groupChars,
+      });
       if (this.primaryStats.failRatio > config.maxProviderFailRatio) {
         const pct = Math.round(this.primaryStats.failRatio * 100);
-        return await this.fail(row, video, probe, attempt, `Google não respondeu ${pct}% dos pedidos (limite atingido?)`, true);
+        const why = this.engine.gemini?.lastError ? ` - ${this.engine.gemini.lastError}` : ' (limite atingido?)';
+        return await this.fail(row, video, probe, attempt, `${this.engine.label} não respondeu ${pct}% dos pedidos${why}`, true);
       }
+      const fallbackCues = results.filter(r => r.source === 'fallback').length;
       const untranslated = results.filter(r => r.warnings.includes('untranslated')).length;
 
       const target = mtFileName(row.video);
@@ -224,21 +245,58 @@ export class AutoTranslator {
           cues: cues.length,
           untranslated,
           translatedAt: new Date().toISOString(),
-          detail: `fonte: ${kind === 'external' ? path.basename(ref) : `faixa embutida #${ref}`}`,
+          detail: `fonte: ${kind === 'external' ? path.basename(ref) : `faixa embutida #${ref}`} · ${this.engineNote(fallbackCues)}`,
         },
       ]);
       await this.state.setMeta('cooldown_streak', '0');
-      log(`Traduzida (${cues.length} falas, ${Math.round((Date.now() - started) / 1000)}s):`, target);
+      const requests = this.geminiRequests() - requestsBefore;
+      log(
+        `Traduzida (${cues.length} falas, ${Math.round((Date.now() - started) / 1000)}s, ${this.engineNote(fallbackCues)}` +
+          `${this.engine.gemini ? `, ${requests} pedidos` : ''}):`,
+        target
+      );
       return 'translated';
     } catch (e) {
       return this.fail(row, video, probe, attempt, (e as Error).message, false);
     }
   }
 
+  /** "gemini-3.5-flash" / "Google", plus how many cues needed the fallback. */
+  private engineNote(fallbackCues: number): string {
+    const name = this.engine.gemini?.lastModel ?? this.engine.label;
+    return fallbackCues ? `${name} + ${fallbackCues} pelo reserva` : name;
+  }
+
+  private geminiRequests(): number {
+    return this.engine.gemini?.usage().reduce((n, u) => n + u.requests, 0) ?? 0;
+  }
+
+  /** When every Gemini model is out of quota, the earliest moment one comes back. */
+  private geminiQuotaBack(): Date | null {
+    const g = this.engine.gemini;
+    if (!g?.unavailable) return null;
+    const times = g.usage().map(u => (u.exhaustedUntil ? Date.parse(u.exhaustedUntil) : 0)).filter(Boolean);
+    return times.length ? new Date(Math.min(...times)) : null;
+  }
+
   /** English cues from an external .srt or an embedded track (ASS read directly, dialogue only). */
-  private async loadCues(videoPath: string, kind: string, ref: string, probe: ProbeStream[] | null): Promise<Cue[]> {
+  async loadCues(videoPath: string, kind: string, ref: string, probe: ProbeStream[] | null): Promise<Cue[]> {
     if (kind === 'external') return parseSrt(await fs.readFile(ref)).cues;
-    const index = Number(ref);
+    let cues = await this.loadTrack(videoPath, Number(ref), probe);
+    if (cues.length >= MIN_DIALOGUE_CUES || !probe) return cues;
+    // Nearly empty (a mislabelled signs/songs track): use the English track with the most dialogue.
+    for (const other of embeddedInfo(probe).enTextStreams ?? []) {
+      if (other === Number(ref)) continue;
+      const alt = await this.loadTrack(videoPath, other, probe).catch(() => [] as Cue[]);
+      if (alt.length > cues.length) {
+        log(`Faixa #${ref} quase vazia (${cues.length} falas); usando a #${other} (${alt.length} falas):`, videoPath);
+        cues = alt;
+      }
+    }
+    return cues;
+  }
+
+  private async loadTrack(videoPath: string, index: number, probe: ProbeStream[] | null): Promise<Cue[]> {
     const codec = (probe?.find(s => s.index === index)?.codec_name || '').toLowerCase();
     if (codec === 'ass' || codec === 'ssa') {
       return assToCues((await extractSubtitle(videoPath, index, 'ass')).toString('utf8'));
@@ -259,15 +317,19 @@ export class AutoTranslator {
       await this.state.upsertMany([
         {
           ...this.nextRow(video, row, { status: 'pending', source: row.source ?? undefined }, probe),
-          detail: `aguardando o Google liberar: ${reason}`.slice(0, 500),
+          detail: `aguardando o ${this.engine.label} liberar: ${reason}`.slice(0, 500),
         },
       ]);
-      // Consecutive refusals double the pause (6 h → 12 h → 24 h); a success resets it.
-      const streak = Number((await this.state.getMeta('cooldown_streak')) ?? 0) + 1;
-      const hours = Math.min(config.cooldownHours * 2 ** (streak - 1), 24);
-      const until = new Date(Date.now() + hours * 3_600_000);
-      await this.state.setMeta('cooldown_streak', String(streak));
+      let until = this.geminiQuotaBack();
+      if (!until) {
+        // Consecutive refusals double the pause (6 h → 12 h → 24 h); a success resets it.
+        const streak = Number((await this.state.getMeta('cooldown_streak')) ?? 0) + 1;
+        until = new Date(Date.now() + Math.min(config.cooldownHours * 2 ** (streak - 1), 24) * 3_600_000);
+        await this.state.setMeta('cooldown_streak', String(streak));
+      }
+      // (When every Gemini model is out of daily quota, resume right after it resets.)
       await this.state.setMeta('cooldown_until', until.toISOString());
+      const hours = Math.round(((until.getTime() - Date.now()) / 3_600_000) * 10) / 10;
       log(`Tradutor recusando (${reason}) em`, row.video, `- pausando ${hours} h, até ${until.toLocaleString('sv-SE')}.`);
       return 'stop';
     }

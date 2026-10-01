@@ -13,6 +13,9 @@ export const MT_TAG = 'Tradução-automática';
  * Bazarr only recognizes a plain `.pt-BR.srt`, so this name does NOT count as PT-BR for it
  * (it keeps searching for a human subtitle), while Emby reads it as pt-BR with MT_TAG as title.
  */
+/** Files written by src/try.ts (`<video>.pt-BR.Teste-<engine>.srt`) are ignored by the scan. */
+export const TEST_TAG_PREFIX = 'teste-';
+
 export function mtFileName(videoPath: string): string {
   return `${stripExt(videoPath)}.pt-BR.${MT_TAG}.srt`;
 }
@@ -55,6 +58,7 @@ export function sidecars(videoPath: string, dirFiles: string[]): Sidecars {
     }
     const tokens = name.slice(base.length + 1, name.length - ext.length).toLowerCase().split('.').filter(Boolean);
     if (!tokens.length || tokens.includes('forced')) continue; // forced = only foreign parts, not a full subtitle
+    if (tokens.some(t => t.startsWith(TEST_TAG_PREFIX))) continue; // engine comparison file (src/try.ts), not a human PT-BR
     const lang = tokens[0];
     if (PT_CODES.has(lang)) out.ptHuman.push(full);
     else if (EN_CODES.has(lang) && ext === '.srt') en.push({ file: full, rank: tokens.some(t => HI_FLAGS.has(t)) ? 1 : 0 });
@@ -79,6 +83,8 @@ export interface EmbeddedInfo {
   ptAudio: boolean;
   /** Absolute stream index of the best English text subtitle, if any. */
   enTextStream: number | null;
+  /** Every English text subtitle, best first (signs/songs tracks last): alternatives if the best is nearly empty. */
+  enTextStreams?: number[];
   /** English subtitles exist but are all images (PGS/VobSub), which cannot be translated. */
   enImageOnly: boolean;
 }
@@ -87,17 +93,26 @@ export function embeddedInfo(streams: ProbeStream[]): EmbeddedInfo {
   const lang = (s: ProbeStream) => (s.tags?.language || '').toLowerCase();
   const subs = streams.filter(s => s.codec_type === 'subtitle' && !s.disposition?.forced);
   const isHi = (s: ProbeStream) => !!s.disposition?.hearing_impaired || /\b(sdh|cc|hi)\b/i.test(s.tags?.title || '');
-  const isSigns = (s: ProbeStream) => /sign|song|karaoke|forced/i.test(s.tags?.title || '');
+  // Anime releases ship a "Signs & Songs" track (often the default) next to the full dialogue.
+  const isSigns = (s: ProbeStream) =>
+    /sign|song|karaoke|forced|lyric|typeset|\bs\s*&\s*s\b|\bts\b/i.test(s.tags?.title || '');
 
-  const enText = subs
-    .filter(s => EN_CODES.has(lang(s)) && TEXT_SUB_CODECS.has((s.codec_name || '').toLowerCase()) && !isSigns(s))
-    // Prefer full dialogue over SDH, then SubRip (cleaner than converted ASS).
-    .sort((a, b) => Number(isHi(a)) - Number(isHi(b)) || Number(a.codec_name !== 'subrip') - Number(b.codec_name !== 'subrip'));
+  const allEnText = subs
+    .filter(s => EN_CODES.has(lang(s)) && TEXT_SUB_CODECS.has((s.codec_name || '').toLowerCase()))
+    // Prefer full dialogue over signs and SDH, then SubRip (cleaner than converted ASS).
+    .sort(
+      (a, b) =>
+        Number(isSigns(a)) - Number(isSigns(b)) ||
+        Number(isHi(a)) - Number(isHi(b)) ||
+        Number(a.codec_name !== 'subrip') - Number(b.codec_name !== 'subrip')
+    );
+  const enText = allEnText.filter(s => !isSigns(s));
 
   return {
     ptSubtitle: subs.some(s => PT_CODES.has(lang(s))),
     ptAudio: streams.some(s => s.codec_type === 'audio' && PT_CODES.has(lang(s))),
     enTextStream: enText[0]?.index ?? null,
+    enTextStreams: allEnText.map(s => s.index),
     enImageOnly: !enText.length && subs.some(s => EN_CODES.has(lang(s))),
   };
 }
