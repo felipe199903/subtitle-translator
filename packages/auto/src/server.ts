@@ -72,9 +72,20 @@ th{color:var(--muted);font-weight:600}td:first-child{width:auto}
 última varredura: ${worker.lastScanAt ? worker.lastScanAt.toLocaleString('sv-SE').slice(0, 16) : 'em andamento'}${
     cooldown ? ` · <b>em pausa até ${cooldown.toLocaleString('sv-SE').slice(0, 16)}</b>` : ''
   }</p>
+<p class="muted">${engineLine(worker)}</p>
 <div class="cards">${cards}</div>
 ${body}
 </main></body></html>`;
+}
+
+function engineLine(worker: AutoTranslator): string {
+  const g = worker.engine.gemini;
+  if (!g) return 'Motor: Google gratuito (sem GEMINI_API_KEY).';
+  const models = g
+    .usage()
+    .map(u => `${esc(u.model)}: ${u.requests} pedidos hoje${u.exhaustedUntil ? ` <b>(cota esgotada até ${fmtDate(u.exhaustedUntil)})</b>` : ''}`)
+    .join(' · ');
+  return `Motor: Gemini (Google gratuito de reserva) · ${models}${g.lastError ? ` · último erro: ${esc(g.lastError)}` : ''}`;
 }
 
 function csv(rows: FileRow[]): string {
@@ -99,6 +110,10 @@ export function startServer(state: StateRepository, worker: AutoTranslator) {
             dailyLimit: config.dailyLimit,
             cooldownUntil: (await worker.cooldownUntil())?.toISOString() ?? null,
             lastScanAt: worker.lastScanAt?.toISOString() ?? null,
+            engine: worker.engine.label,
+            gemini: worker.engine.gemini
+              ? { usage: worker.engine.gemini.usage(), lastModel: worker.engine.gemini.lastModel, lastError: worker.engine.gemini.lastError }
+              : null,
           };
           res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(body));
         } else if (url.pathname === '/api/files.csv') {
