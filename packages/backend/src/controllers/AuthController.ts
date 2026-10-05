@@ -91,7 +91,13 @@ export class AuthController {
     await this.users.createLoginToken(email, hashToken(token), TOKEN_TTL_MINUTES);
     // The link opens a page that confirms with a POST, so e-mail scanners that prefetch links don't burn it.
     const { subject, html, text } = magicLinkEmail(`${appUrl(req)}/entrar/confirmar?token=${token}`);
-    await this.mailer(email, subject, html, text);
+    try {
+      await this.mailer(email, subject, html, text);
+    } catch (e) {
+      console.error('Falha ao enviar o link de acesso:', e);
+      res.status(503).json({ error: 'Não conseguimos enviar o e-mail agora. Tente entrar com o Google ou tente de novo em alguns minutos.' });
+      return;
+    }
     res.json({ data: { sent: true } });
   });
 

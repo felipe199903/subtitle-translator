@@ -118,7 +118,7 @@ npx vercel env pull .env.local   # traz DATABASE_URL; a API lê .env.local sozin
 | `STRIPE_WEBHOOK_SECRET` | Vercel | Impresso pelo `npm run stripe:setup` (ou pelo `stripe listen` no dev) |
 | `STRIPE_PORTAL_CONFIGURATION` | opcional | Só se o setup pedir (quando o portal criado não vira o padrão) |
 | `GEMINI_API_KEY` | Vercel | Liga a tradução por IA no Pro. Use uma chave de projeto com faturamento |
-| `GEMINI_MODELS` | opcional | Modelos em ordem de preferência, separados por vírgula (padrão: o mesmo do `auto`) |
+| `GEMINI_MODELS` | opcional | Modelos em ordem de preferência, separados por vírgula (padrão no site: `gemini-3.5-flash-lite,gemini-3.1-flash-lite`, pela margem) |
 | `MYMEMORY_EMAIL` | opcional | Aumenta a cota do tradutor reserva de ~5k para ~50k caracteres/dia |
 
 Para testar pagamentos no dev local, use a chave de teste e repasse os webhooks com a [Stripe CLI](https://docs.stripe.com/stripe-cli):

@@ -110,7 +110,8 @@ function geminiFromEnv(): TranslationProvider | null {
   const models = (process.env.GEMINI_MODELS || '').split(',').map(s => s.trim()).filter(Boolean);
   const gemini = new GeminiProvider({
     apiKey,
-    models: models.length ? models : undefined,
+    // Flash-Lite keeps the heaviest Pro user profitable at R$ 19,90 (see the go-to-market doc).
+    models: models.length ? models : ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'],
     timeoutMs: 25_000,
     retries: 1,
     retryDelayMs: 1000,
