@@ -9,12 +9,16 @@ describe('Vercel entry (api/index.ts)', () => {
 
   it('exports an Express handler that serves the API routes', async () => {
     const handler = (await import('../../../api/index')).default;
-    closeDb = (await import('./db/client')).getDb().close;
+    const db = (await import('./db/client')).getDb();
+    closeDb = db.close;
     await request(handler).get('/api/health').expect(200);
-    const res = await request(handler).get('/api/subtitles/jobs/nope').expect(404);
+    await request(handler).get('/api/subtitles/jobs/nope').expect(401);
+    const { cookie } = await (await import('./__tests__/fixtures')).signIn(db);
+    const res = await request(handler).get('/api/subtitles/jobs/nope').set('Cookie', cookie).expect(404);
     expect(res.body.error).toMatch(/não encontrada/);
     const created = await request(handler)
       .post('/api/subtitles/jobs')
+      .set('Cookie', cookie)
       .attach('file', Buffer.from('1\n00:00:01,000 --> 00:00:02,000\nHi there\n'), 'a.srt')
       .expect(201);
     expect(created.body.data.cues).toHaveLength(1);

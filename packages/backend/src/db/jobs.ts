@@ -24,9 +24,12 @@ export interface JobMeta {
   status: JobStatus;
   error: string | null;
   createdAt: number;
+  /** The account that uploaded the file; null for jobs created before accounts existed. */
+  userId: string | null;
 }
 
 export interface NewJob {
+  userId: string;
   fileName: string;
   from: string;
   to: string;
@@ -45,9 +48,9 @@ export class JobRepository {
   async create(job: NewJob): Promise<string> {
     const id = randomUUID();
     await this.db.query(
-      `INSERT INTO jobs (id, file_name, src_lang, tgt_lang, detected_language, encoding, parse_warnings)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
-      [id, job.fileName, job.from, job.to, job.detectedLanguage, job.encoding, JSON.stringify(job.parseWarnings)]
+      `INSERT INTO jobs (id, file_name, src_lang, tgt_lang, detected_language, encoding, parse_warnings, user_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)`,
+      [id, job.fileName, job.from, job.to, job.detectedLanguage, job.encoding, JSON.stringify(job.parseWarnings), job.userId]
     );
     const c = job.cues;
     await this.db.query(
@@ -71,7 +74,7 @@ export class JobRepository {
     if (!isUuid(id)) return null;
     const [r] = await this.db.query(
       `UPDATE jobs SET updated_at = now() WHERE id = $1
-       RETURNING id, file_name, src_lang, tgt_lang, detected_language, encoding, parse_warnings, status, error, created_at`,
+       RETURNING id, file_name, src_lang, tgt_lang, detected_language, encoding, parse_warnings, status, error, created_at, user_id`,
       [id]
     );
     if (!r) return null;
@@ -86,6 +89,7 @@ export class JobRepository {
       status: r.status,
       error: r.error,
       createdAt: new Date(r.created_at).getTime(),
+      userId: r.user_id ?? null,
     };
   }
 

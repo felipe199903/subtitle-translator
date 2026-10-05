@@ -1,10 +1,11 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideZonelessChangeDetection } from '@angular/core';
+import { provideZonelessChangeDetection, signal } from '@angular/core';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { TranslationComponent } from './translation';
 import { Job, JobCue, SubtitleService, TranslateStep } from '../services/subtitle.service';
+import { AuthService } from '../services/auth.service';
 
 const cue = (position: number, patch: Partial<JobCue> = {}): JobCue => ({
   position,
@@ -45,6 +46,7 @@ describe('TranslationComponent', () => {
         provideZonelessChangeDetection(),
         provideRouter([]),
         { provide: SubtitleService, useValue: api },
+        { provide: AuthService, useValue: { me: signal(null), aiEngine: signal(false) } },
         { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ jobId: 'job-1' }) } } },
       ],
     }).compileComponents();

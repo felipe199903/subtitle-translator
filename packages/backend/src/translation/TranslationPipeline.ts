@@ -1,6 +1,6 @@
 import { Cue, timestampToMs } from '../srt/SrtParser';
 import { CueWarning, PreparedCue, computeWarnings, prepareCue, tmKey } from '../srt/CueText';
-import { MemoryEntry, MemoryRepository } from '../db/memory';
+import { MemoryEntry, MemoryOrigin, MemoryRepository } from '../db/memory';
 import { TranslationProvider, mapWithConcurrency } from './TranslationProvider';
 
 /** Where a cue's translation came from. */
@@ -22,12 +22,26 @@ export interface PipelineOptions {
   concurrency?: number;
 }
 
+export interface PipelineConfig {
+  /** Origin stored in the memory for this pipeline's results (default "mt"). */
+  memoryOrigin?: Exclude<MemoryOrigin, 'user'>;
+  /** Memory origins reused as-is (default: all). The Pro pipeline skips free "mt" entries. */
+  acceptMemory?: MemoryOrigin[];
+}
+
 export class TranslationPipeline {
+  private memoryOrigin: Exclude<MemoryOrigin, 'user'>;
+  private acceptMemory: Set<MemoryOrigin>;
+
   constructor(
     private memory: MemoryRepository,
     private primary: TranslationProvider,
-    private fallback?: TranslationProvider
-  ) {}
+    private fallback?: TranslationProvider,
+    config: PipelineConfig = {}
+  ) {
+    this.memoryOrigin = config.memoryOrigin ?? 'mt';
+    this.acceptMemory = new Set(config.acceptMemory ?? ['user', 'ai', 'mt']);
+  }
 
   static memoryKey(text: string, to: string): string {
     return `${to.toLowerCase()}|${tmKey(text)}`;
@@ -50,7 +64,7 @@ export class TranslationPipeline {
     const fromMemory: Array<[number, TranslatedCue]> = [];
     cues.forEach((cue, i) => {
       const hit = memory.get(keys[i]);
-      if (hit) {
+      if (hit && this.acceptMemory.has(hit.origin)) {
         results[i] = this.finish(cue, hit.tgt, hit.origin === 'user' ? 'user' : 'memory');
         fromMemory.push([i, results[i]]);
       } else {
@@ -121,7 +135,9 @@ export class TranslationPipeline {
         results[i] = done;
         completed.push([i, done]);
         if (p.segments.length && !done.warnings.includes('untranslated')) {
-          toSave.push({ srcNorm: keys[i], src: cues[i].text, tgt: translation, origin: 'mt' });
+          // A cue the primary failed on is the fallback's work: cache it at the free tier.
+          const origin = usedFallback.has(i) ? 'mt' : this.memoryOrigin;
+          toSave.push({ srcNorm: keys[i], src: cues[i].text, tgt: translation, origin });
         }
       }
       onProgress?.(completed);

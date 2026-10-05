@@ -33,7 +33,7 @@ describe('MemoryRepository', () => {
     await Promise.all([memory.upsertMany(batch('a')), memory.upsertMany(batch('b'))]);
     const found = await memory.lookupMany([...batch('a'), ...batch('b')].map(e => e.srcNorm));
     expect(found.size).toBe(3000);
-    expect(await memory.stats()).toEqual({ user: 0, mt: 3000 });
+    expect(await memory.stats()).toEqual({ user: 0, ai: 0, mt: 3000 });
   });
 
   it('skips keys too long for the index instead of failing the whole batch', async () => {

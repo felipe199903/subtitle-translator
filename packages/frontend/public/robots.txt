@@ -1,0 +1,8 @@
+User-agent: *
+Disallow: /api/
+Disallow: /app
+Disallow: /conta
+Disallow: /entrar
+Disallow: /translation/
+
+Sitemap: https://subtitle-translator.com.br/sitemap.xml

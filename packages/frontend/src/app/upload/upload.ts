@@ -1,23 +1,28 @@
 import { Component, inject, signal } from '@angular/core';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
+import { HttpErrorResponse } from '@angular/common/http';
+import { AuthService } from '../services/auth.service';
 import { IconComponent } from '../components/icon.component';
 import { MAX_FILE_BYTES, SubtitleService, apiErrorMessage } from '../services/subtitle.service';
 
 @Component({
   selector: 'app-upload',
   standalone: true,
-  imports: [IconComponent],
+  imports: [IconComponent, RouterLink],
   templateUrl: './upload.html',
   styleUrl: './upload.scss',
 })
 export class UploadComponent {
   private subtitles = inject(SubtitleService);
   private router = inject(Router);
+  protected auth = inject(AuthService);
 
   dragging = signal(false);
   uploading = signal(false);
   error = signal<string | null>(null);
   fileName = signal<string | null>(null);
+  /** The plan limit was hit (HTTP 402): offer the upgrade. */
+  upgrade = signal(false);
 
   onFileInput(event: Event): void {
     const input = event.target as HTMLInputElement;
@@ -51,6 +56,7 @@ export class UploadComponent {
 
   private start(file: File): void {
     this.error.set(null);
+    this.upgrade.set(false);
     if (!file.name.toLowerCase().endsWith('.srt')) {
       this.error.set(`"${file.name}" não é um arquivo .srt.`);
       return;
@@ -67,9 +73,13 @@ export class UploadComponent {
     this.fileName.set(file.name);
     this.uploading.set(true);
     this.subtitles.createJob(file).subscribe({
-      next: job => this.router.navigate(['/translation', job.id]),
+      next: job => {
+        this.auth.refresh(); // usage counter
+        this.router.navigate(['/translation', job.id]);
+      },
       error: err => {
         this.uploading.set(false);
+        this.upgrade.set(err instanceof HttpErrorResponse && err.status === 402);
         this.error.set(apiErrorMessage(err, 'Não foi possível enviar o arquivo.'));
       },
     });

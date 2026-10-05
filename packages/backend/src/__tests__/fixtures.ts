@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { TranslationProvider } from '../translation/TranslationProvider';
 import { Db, pgliteDb } from '../db/client';
+import { UserRepository } from '../db/users';
+import { SESSION_COOKIE, signSession } from '../auth/session';
 
 export const TESTS_DIR = path.resolve(__dirname, '../../../../tests');
 export const SHERLOCK = path.join(TESTS_DIR, 'Sherlock Gnomes (2018).en.srt');
@@ -30,7 +32,7 @@ export function useTestDb(): { readonly db: Db } {
     db = pgliteDb();
   });
   beforeEach(async () => {
-    await db.query('TRUNCATE memory, jobs CASCADE');
+    await db.query('TRUNCATE memory, jobs, users, login_tokens, stripe_events CASCADE');
   });
   afterAll(async () => {
     await db.close?.();
@@ -40,4 +42,10 @@ export function useTestDb(): { readonly db: Db } {
       return db;
     },
   };
+}
+
+/** Creates (or finds) an account and returns it with a Cookie header value for its session. */
+export async function signIn(db: Db, email = 'ana@example.com') {
+  const user = await new UserRepository(db).findOrCreateByEmail(email);
+  return { user, cookie: `${SESSION_COOKIE}=${signSession(user.id)}` };
 }

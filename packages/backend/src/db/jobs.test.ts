@@ -1,12 +1,14 @@
 import { JobRepository } from './jobs';
-import { useTestDb } from '../__tests__/fixtures';
+import { signIn, useTestDb } from '../__tests__/fixtures';
 import { Cue } from '../srt/SrtParser';
 import { TranslatedCue } from '../translation/TranslationPipeline';
 
 const t = useTestDb();
 let jobs: JobRepository;
-beforeEach(() => {
+let userId: string;
+beforeEach(async () => {
   jobs = new JobRepository(t.db);
+  userId = (await signIn(t.db)).user.id;
 });
 
 const cues: Cue[] = [
@@ -15,7 +17,7 @@ const cues: Cue[] = [
   { index: 5, start: '00:00:05,000', end: '00:00:06,000', text: 'Three.' },
 ];
 const newJob = () =>
-  jobs.create({ fileName: 'a.srt', from: 'en', to: 'pt-BR', detectedLanguage: 'en', encoding: 'utf-8', parseWarnings: ['aviso'], cues });
+  jobs.create({ userId, fileName: 'a.srt', from: 'en', to: 'pt-BR', detectedLanguage: 'en', encoding: 'utf-8', parseWarnings: ['aviso'], cues });
 const result = (translation: string, patch: Partial<TranslatedCue> = {}): TranslatedCue =>
   ({ ...cues[0], translation, source: 'provider', warnings: [], ...patch }) as TranslatedCue;
 
@@ -23,7 +25,7 @@ describe('JobRepository', () => {
   it('stores a job with its cues in order', async () => {
     const id = await newJob();
     expect(await jobs.getMeta(id)).toMatchObject({
-      fileName: 'a.srt', from: 'en', to: 'pt-BR', status: 'translating', parseWarnings: ['aviso'], error: null,
+      fileName: 'a.srt', from: 'en', to: 'pt-BR', status: 'translating', parseWarnings: ['aviso'], error: null, userId,
     });
     const stored = await jobs.cues(id);
     expect(stored.map(c => [c.position, c.index, c.text, c.translation])).toEqual([
