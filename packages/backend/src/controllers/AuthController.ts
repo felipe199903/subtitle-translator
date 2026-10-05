@@ -88,13 +88,16 @@ export class AuthController {
       return;
     }
     const token = randomBytes(32).toString('base64url');
-    await this.users.createLoginToken(email, hashToken(token), TOKEN_TTL_MINUTES);
+    const tokenHash = hashToken(token);
+    await this.users.createLoginToken(email, tokenHash, TOKEN_TTL_MINUTES);
     // The link opens a page that confirms with a POST, so e-mail scanners that prefetch links don't burn it.
     const { subject, html, text } = magicLinkEmail(`${appUrl(req)}/entrar/confirmar?token=${token}`);
     try {
       await this.mailer(email, subject, html, text);
     } catch (e) {
       console.error('Falha ao enviar o link de acesso:', e);
+      // A link that never left must not use up one of the person's tries for the hour.
+      await this.users.deleteLoginToken(tokenHash).catch(() => {});
       res.status(503).json({ error: 'Não conseguimos enviar o e-mail agora. Tente entrar com o Google ou tente de novo em alguns minutos.' });
       return;
     }

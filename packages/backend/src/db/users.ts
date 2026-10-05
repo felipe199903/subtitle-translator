@@ -110,6 +110,11 @@ export class UserRepository {
     );
   }
 
+  /** Removes a token whose e-mail could not be sent, so it does not count against the hourly limit. */
+  async deleteLoginToken(tokenHash: string): Promise<void> {
+    await this.db.query(`DELETE FROM login_tokens WHERE token_hash = $1`, [tokenHash]);
+  }
+
   async loginTokensSince(email: string, minutes: number): Promise<number> {
     const [r] = await this.db.query(
       `SELECT COUNT(*)::int AS n FROM login_tokens WHERE email = $1 AND created_at > now() - make_interval(mins => $2)`,

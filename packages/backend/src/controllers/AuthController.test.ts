@@ -79,6 +79,25 @@ describe('auth API', () => {
     await request(app).post('/api/auth/verify').send({}).expect(400);
   });
 
+  it('does not count links that could not be sent against the hourly limit', async () => {
+    const app = createApp({
+      db: t.db,
+      primary: new FakeProvider(),
+      fallback: null,
+      stripe: null,
+      mailer: async () => {
+        throw new Error('RESEND_API_KEY não definida');
+      },
+    });
+    const err = jest.spyOn(console, 'error').mockImplementation(() => {});
+    for (let i = 0; i < 4; i++) {
+      const res = await request(app).post('/api/auth/magic-link').send({ email: 'd@example.com' }).expect(503);
+      expect(res.body.error).toMatch(/enviar o e-mail/);
+    }
+    err.mockRestore();
+    expect(await new UserRepository(t.db).loginTokensSince('d@example.com', 60)).toBe(0);
+  });
+
   it('signs in with Google when configured', async () => {
     await request(makeApp().app).post('/api/auth/google').send({ credential: 'x' }).expect(503);
 
