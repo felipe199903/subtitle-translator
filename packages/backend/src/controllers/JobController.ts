@@ -5,23 +5,17 @@ import { TranslationPipeline } from '../translation/TranslationPipeline';
 import { LanguageDetectionService } from '../services/LanguageDetectionService';
 import { JobCue, JobMeta, JobRepository } from '../db/jobs';
 import { MemoryRepository } from '../db/memory';
+import { UserRepository } from '../db/users';
+import { LIMITS, planOf } from '../auth/plans';
+import { currentUser } from '../auth/session';
+import { safe } from './safe';
 
-const MAX_CUES = 10000;
 /** Source characters translated per /translate call: ~300 cues, about a second of work. */
 const BATCH_CHARS = 12000;
+/** The AI engine is slower: smaller calls (in parallel groups) stay well inside the 60 s limit. */
+const AI_BATCH_CHARS = 5000;
+const AI_GROUP_CHARS = 1800;
 const JOB_TTL_DAYS = 7;
-
-type Handler = (req: Request, res: Response) => Promise<void>;
-
-/** Wraps async handlers so database errors become a JSON 500 instead of a hung request. */
-const safe = (fn: Handler): Handler => async (req, res) => {
-  try {
-    await fn(req, res);
-  } catch (err) {
-    console.error('Erro na API:', err);
-    if (!res.headersSent) res.status(500).json({ error: 'Erro interno do servidor. Tente novamente.' });
-  }
-};
 
 export class JobController {
   private detector = new LanguageDetectionService();
@@ -30,6 +24,10 @@ export class JobController {
     private jobs: JobRepository,
     private memory: MemoryRepository,
     private pipeline: TranslationPipeline,
+    private users: UserRepository,
+    /** Used for jobs whose owner is on Pro (AI engine when configured). */
+    private proPipeline: TranslationPipeline = pipeline,
+    private proUsesAi = false,
     private defaults = { from: 'en', to: 'pt-BR' }
   ) {}
 
@@ -44,8 +42,28 @@ export class JobController {
       res.status(400).json({ error: 'Não encontramos nenhuma legenda válida. Verifique se o arquivo está no formato .srt.' });
       return;
     }
-    if (cues.length > MAX_CUES) {
-      res.status(400).json({ error: `O arquivo tem ${cues.length} legendas; o máximo é ${MAX_CUES}.` });
+
+    const user = currentUser(res);
+    const plan = planOf(user);
+    const limits = LIMITS[plan];
+    if (cues.length > limits.maxCues) {
+      const canUpgrade = plan === 'free' && cues.length <= LIMITS.pro.maxCues;
+      res.status(canUpgrade ? 402 : 400).json({
+        error: canUpgrade
+          ? `O arquivo tem ${cues.length} falas; o plano grátis aceita até ${limits.maxCues}. Assine o Pro para traduzir arquivos de até ${LIMITS.pro.maxCues} falas.`
+          : `O arquivo tem ${cues.length} falas; o máximo é ${limits.maxCues}.`,
+        ...(canUpgrade ? { code: 'TOO_LONG' } : {}),
+      });
+      return;
+    }
+    if ((await this.users.usageThisMonth(user.id)) >= limits.filesPerMonth) {
+      res.status(plan === 'free' ? 402 : 429).json({
+        error:
+          plan === 'free'
+            ? `Você já usou as ${limits.filesPerMonth} traduções grátis deste mês. Assine o Pro para continuar.`
+            : `Você atingiu o limite de uso justo de ${limits.filesPerMonth} arquivos neste mês. Fale com o suporte se precisar de mais.`,
+        code: 'QUOTA',
+      });
       return;
     }
 
@@ -69,6 +87,7 @@ export class JobController {
     await this.jobs.deleteOlderThan(JOB_TTL_DAYS).catch(e => console.warn('Limpeza de jobs falhou:', e));
 
     const id = await this.jobs.create({
+      userId: user.id,
       fileName: path.basename(req.file.originalname),
       from,
       to,
@@ -77,13 +96,14 @@ export class JobController {
       parseWarnings,
       cues,
     });
+    await this.users.incrementUsage(user.id);
     res.status(201).json({ data: await this.fullView(id) });
   });
 
   get = safe(async (req, res) => {
-    const view = await this.fullView(req.params.id);
-    if (!view) return this.notFound(res);
-    res.json({ data: view });
+    const meta = await this.ownedMeta(req, res);
+    if (!meta) return this.notFound(res);
+    res.json({ data: this.view(meta, await this.jobs.cues(meta.id)) });
   });
 
   /**
@@ -92,14 +112,17 @@ export class JobController {
    * and a reloaded page simply continues where it stopped.
    */
   translate = safe(async (req, res) => {
-    const meta = await this.jobs.getMeta(req.params.id);
+    const meta = await this.ownedMeta(req, res);
     if (!meta) return this.notFound(res);
 
     let cues: JobCue[] = [];
     if (meta.status === 'translating') {
-      const pending = await this.jobs.pendingCues(meta.id, BATCH_CHARS);
+      const ai = this.proUsesAi && planOf(currentUser(res)) === 'pro';
+      const pending = await this.jobs.pendingCues(meta.id, ai ? AI_BATCH_CHARS : BATCH_CHARS);
       if (pending.length) {
-        const results = await this.pipeline.translate(pending, { from: meta.from, to: meta.to });
+        const results = ai
+          ? await this.proPipeline.translate(pending, { from: meta.from, to: meta.to, groupChars: AI_GROUP_CHARS })
+          : await this.pipeline.translate(pending, { from: meta.from, to: meta.to });
         await this.jobs.saveResults(meta.id, results.map((r, i) => [pending[i].position, r]));
         cues = await this.jobs.cues(meta.id, pending.map(c => c.position));
       }
@@ -115,7 +138,7 @@ export class JobController {
   });
 
   editCue = safe(async (req, res) => {
-    const meta = await this.jobs.getMeta(req.params.id);
+    const meta = await this.ownedMeta(req, res);
     if (!meta) return this.notFound(res);
     const pos = Number(req.params.position);
     const [cue] = Number.isInteger(pos) ? await this.jobs.cues(meta.id, [pos]) : [];
@@ -138,7 +161,7 @@ export class JobController {
   });
 
   retry = safe(async (req, res) => {
-    const meta = await this.jobs.getMeta(req.params.id);
+    const meta = await this.ownedMeta(req, res);
     if (!meta) return this.notFound(res);
     const retrying = await this.jobs.resetUntranslated(meta.id);
     if (retrying) await this.jobs.setStatus(meta.id, 'translating');
@@ -146,7 +169,7 @@ export class JobController {
   });
 
   download = safe(async (req, res) => {
-    const meta = await this.jobs.getMeta(req.params.id);
+    const meta = await this.ownedMeta(req, res);
     if (!meta) return this.notFound(res);
     if (meta.status === 'translating') {
       res.status(409).json({ error: 'A tradução ainda está em andamento.' });
@@ -181,11 +204,18 @@ export class JobController {
     return this.view(meta, cues);
   }
 
+  /** The job, only when it belongs to the signed-in user; other people's jobs look like missing ones. */
+  private async ownedMeta(req: Request, res: Response): Promise<JobMeta | null> {
+    const meta = await this.jobs.getMeta(req.params.id);
+    return meta && meta.userId === currentUser(res).id ? meta : null;
+  }
+
   private view(meta: JobMeta, cues: JobCue[]) {
     const warningCounts: Record<string, number> = {};
     for (const c of cues) for (const w of c.warnings) warningCounts[w] = (warningCounts[w] ?? 0) + 1;
+    const { userId: _owner, ...rest } = meta;
     return {
-      ...meta,
+      ...rest,
       progress: { done: cues.filter(c => c.translation != null).length, total: cues.length },
       warningCounts,
       cues,

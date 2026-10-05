@@ -1,9 +1,12 @@
 import { Db } from './client';
 
-export type MemoryOrigin = 'user' | 'mt';
+/** user: corrections typed in the editor; ai: Gemini (Pro); mt: free machine translation. */
+export type MemoryOrigin = 'user' | 'ai' | 'mt';
 
 /** Longest key cached (well under the ~8 KB limit of a Postgres btree index row). */
 export const MAX_KEY_BYTES = 2000;
+
+const RANK = (col: string) => `(CASE ${col} WHEN 'user' THEN 3 WHEN 'ai' THEN 2 ELSE 1 END)`;
 
 export interface MemoryEntry {
   srcNorm: string;
@@ -14,8 +17,8 @@ export interface MemoryEntry {
 
 /**
  * Translation memory: whole cues only, exact match on a normalized key.
- * `user` entries are corrections made in the editor and always win;
- * `mt` entries cache machine translations so re-translating a file is instant.
+ * `user` entries are corrections made in the editor and always win; `ai` entries (Gemini)
+ * outrank `mt` ones (free machine translation), which only cache so re-translating is instant.
  */
 export class MemoryRepository {
   constructor(private db: Db) {}
@@ -33,7 +36,7 @@ export class MemoryRepository {
     return found;
   }
 
-  /** Saves entries in one statement. A machine translation never overwrites a user correction. */
+  /** Saves entries in one statement. An entry never overwrites one of a higher origin (user > ai > mt). */
   async upsertMany(entries: MemoryEntry[]): Promise<void> {
     // Within one statement a key may appear only once; the last entry wins. Keys too long for
     // the primary-key index (Postgres btree rows max ~8 KB) would fail the whole statement:
@@ -48,14 +51,14 @@ export class MemoryRepository {
        SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::text[])
        ON CONFLICT (src_norm) DO UPDATE
          SET src = excluded.src, tgt = excluded.tgt, origin = excluded.origin, updated_at = now()
-         WHERE memory.origin = 'mt' OR excluded.origin = 'user'`,
+         WHERE ${RANK('excluded.origin')} >= ${RANK('memory.origin')}`,
       [list.map(e => e.srcNorm), list.map(e => e.src), list.map(e => e.tgt), list.map(e => e.origin)]
     );
   }
 
   async stats(): Promise<Record<MemoryOrigin, number>> {
     const rows = await this.db.query(`SELECT origin, COUNT(*)::int AS n FROM memory GROUP BY origin`);
-    const stats = { user: 0, mt: 0 };
+    const stats = { user: 0, ai: 0, mt: 0 };
     for (const r of rows) stats[r.origin as MemoryOrigin] = r.n;
     return stats;
   }

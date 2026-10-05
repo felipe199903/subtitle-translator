@@ -5,6 +5,8 @@ import { of, throwError } from 'rxjs';
 import { HttpErrorResponse } from '@angular/common/http';
 import { UploadComponent } from './upload';
 import { SubtitleService } from '../services/subtitle.service';
+import { AuthService } from '../services/auth.service';
+import { signal } from '@angular/core';
 
 describe('UploadComponent', () => {
   let fixture: ComponentFixture<UploadComponent>;
@@ -22,7 +24,12 @@ describe('UploadComponent', () => {
     api = jasmine.createSpyObj<SubtitleService>('SubtitleService', ['createJob']);
     await TestBed.configureTestingModule({
       imports: [UploadComponent],
-      providers: [provideZonelessChangeDetection(), provideRouter([]), { provide: SubtitleService, useValue: api }],
+      providers: [
+        provideZonelessChangeDetection(),
+        provideRouter([]),
+        { provide: SubtitleService, useValue: api },
+        { provide: AuthService, useValue: { me: signal(null), refresh: () => Promise.resolve(null) } },
+      ],
     }).compileComponents();
     router = TestBed.inject(Router);
     spyOn(router, 'navigate').and.resolveTo(true);
@@ -47,6 +54,15 @@ describe('UploadComponent', () => {
     drop(new File(['x'], 'a.srt'), new File(['y'], 'b.srt'));
     expect(api.createJob).not.toHaveBeenCalled();
     expect(fixture.nativeElement.textContent).toContain('um arquivo por vez');
+  });
+
+  it('offers the Pro plans when the monthly quota is used up', () => {
+    api.createJob.and.returnValue(
+      throwError(() => new HttpErrorResponse({ status: 402, error: { error: 'Você já usou as 3 traduções grátis deste mês.', code: 'QUOTA' } }))
+    );
+    drop(new File(['x'], 'movie.srt'));
+    expect(fixture.nativeElement.textContent).toContain('traduções grátis');
+    expect(fixture.nativeElement.querySelector('a[href="/precos"]')).not.toBeNull();
   });
 
   it('shows the API error and lets the user try again', () => {

@@ -130,3 +130,32 @@ describe('TranslationPipeline without a database', () => {
     warn.mockRestore();
   });
 });
+
+describe('memory tiers (Pro AI vs free machine translation)', () => {
+  const key = (text: string) => TranslationPipeline.memoryKey(text, 'pt-BR');
+  const ai = (primary: TranslationProvider, fallback?: TranslationProvider) =>
+    new TranslationPipeline(memory, primary, fallback, { memoryOrigin: 'ai', acceptMemory: ['user', 'ai'] });
+
+  it('the Pro pipeline ignores free cache entries and replaces them with its own', async () => {
+    await pipe(new FakeProvider(t => `MT:${t}`)).translate([cue('Good morning.')], opts);
+    const out = await ai(new FakeProvider(t => `AI:${t}`)).translate([cue('Good morning.')], opts);
+    expect(out[0]).toMatchObject({ translation: 'AI:Good morning.', source: 'provider' });
+    expect((await memory.lookupMany([key('Good morning.')])).get(key('Good morning.'))?.origin).toBe('ai');
+
+    // Free users now get the better translation from the cache, and cannot overwrite it.
+    const free = new FakeProvider(t => `MT:${t}`);
+    expect((await pipe(free).translate([cue('Good morning.')], opts))[0]).toMatchObject({ translation: 'AI:Good morning.', source: 'memory' });
+    expect(free.calls).toEqual([]);
+    await memory.upsertMany([{ srcNorm: key('Good morning.'), src: 'Good morning.', tgt: 'MT', origin: 'mt' }]);
+    expect((await memory.lookupMany([key('Good morning.')])).get(key('Good morning.'))?.tgt).toBe('AI:Good morning.');
+  });
+
+  it('keeps user corrections above AI, and caches fallback results as free tier', async () => {
+    await remember('Hello.', 'pt-BR', 'Oi.');
+    await memory.upsertMany([{ srcNorm: key('Hello.'), src: 'Hello.', tgt: 'AI', origin: 'ai' }]);
+    const out = await ai(new FakeProvider(() => null), new FakeProvider(t => `FB:${t}`)).translate([cue('Hello.'), cue('Bye.', 2)], opts);
+    expect(out[0]).toMatchObject({ translation: 'Oi.', source: 'user' });
+    expect(out[1]).toMatchObject({ translation: 'FB:Bye.', source: 'fallback' });
+    expect((await memory.lookupMany([key('Bye.')])).get(key('Bye.'))?.origin).toBe('mt');
+  });
+});

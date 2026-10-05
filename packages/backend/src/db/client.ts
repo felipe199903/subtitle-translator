@@ -43,6 +43,42 @@ const SCHEMA = [
     PRIMARY KEY (job_id, position)
   )`,
   `CREATE INDEX IF NOT EXISTS jobs_updated_at_idx ON jobs (updated_at)`,
+  `CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    name TEXT,
+    google_sub TEXT UNIQUE,
+    stripe_customer_id TEXT UNIQUE,
+    sub_id TEXT,
+    sub_status TEXT,
+    sub_period_end TIMESTAMPTZ,
+    sub_cancel_at_end BOOLEAN NOT NULL DEFAULT false,
+    sub_event_at BIGINT NOT NULL DEFAULT 0,
+    pro_until TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`,
+  `CREATE TABLE IF NOT EXISTS login_tokens (
+    token_hash TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`,
+  `CREATE INDEX IF NOT EXISTS login_tokens_email_idx ON login_tokens (email, created_at)`,
+  // Kept apart from jobs, which expire after a few days, so the monthly quota survives the cleanup.
+  `CREATE TABLE IF NOT EXISTS usage (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    month TEXT NOT NULL,
+    files INT NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, month)
+  )`,
+  `CREATE TABLE IF NOT EXISTS stripe_events (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`,
+  `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE CASCADE`,
+  `CREATE INDEX IF NOT EXISTS jobs_user_id_idx ON jobs (user_id)`,
 ];
 
 /** Wraps a raw query function so the schema is created once, before the first query. */

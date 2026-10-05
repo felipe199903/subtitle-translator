@@ -1,5 +1,10 @@
 <section class="hero">
-  <span class="badge accent eyebrow"><app-icon name="sparkle" [size]="14" /> Grátis · sem cadastro</span>
+  @if (auth.me(); as me) {
+    <a class="badge accent eyebrow" routerLink="/conta">
+      <app-icon name="sparkle" [size]="14" />
+      Plano {{ me.plan === 'pro' ? 'Pro' : 'Grátis' }} · {{ me.usage.files }} de {{ me.limits.filesPerMonth }} traduções este mês
+    </a>
+  }
   <h1>Traduza legendas para português em segundos</h1>
   <p class="lead">Envie um arquivo <code>.srt</code> em inglês, revise as falas marcadas e baixe a legenda pronta para usar.</p>
 </section>
@@ -27,7 +32,10 @@
 @if (error()) {
   <div class="alert danger" role="alert">
     <app-icon name="alert" />
-    <div class="alert-body">{{ error() }}</div>
+    <div class="alert-body">
+      {{ error() }}
+      @if (upgrade()) { <a routerLink="/precos">Ver planos Pro</a> }
+    </div>
   </div>
 }
 

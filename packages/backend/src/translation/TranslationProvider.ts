@@ -47,3 +47,20 @@ export async function mapWithConcurrency<T, R>(
   await Promise.all(workers);
   return results;
 }
+
+/**
+ * Gives `provider` at most `ms` per batch; after that the batch comes back untranslated (all null)
+ * so the pipeline's fallback finishes it. Keeps a slow provider inside a serverless time limit.
+ */
+export function withDeadline(provider: TranslationProvider, ms: number): TranslationProvider {
+  return {
+    name: provider.name,
+    translateBatch: (texts, from, to) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<Array<string | null>>(resolve => {
+        timer = setTimeout(() => resolve(texts.map(() => null)), ms);
+      });
+      return Promise.race([provider.translateBatch(texts, from, to), deadline]).finally(() => clearTimeout(timer));
+    },
+  };
+}

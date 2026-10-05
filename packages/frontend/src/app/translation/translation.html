@@ -73,6 +73,16 @@
         </p>
       </div>
     }
+    @if (status() === 'done' && auth.me()?.plan === 'free' && auth.aiEngine()) {
+      <div class="alert info upsell">
+        <app-icon name="sparkle" />
+        <div class="alert-body">
+          <strong>Quer uma tradução ainda mais natural?</strong> No Pro, a IA lê as falas vizinhas e acerta gênero,
+          tratamento e gírias, com até 200 legendas por mês.
+          <a routerLink="/precos">Conhecer o Pro</a>
+        </div>
+      </div>
+    }
   </section>
 
   @for (w of job()!.parseWarnings; track $index) {

@@ -4,6 +4,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { IconComponent } from '../components/icon.component';
 import { HttpErrorResponse } from '@angular/common/http';
 import { CueWarning, Job, JobCue, SubtitleService, apiErrorMessage } from '../services/subtitle.service';
+import { AuthService } from '../services/auth.service';
 
 type Filter = 'all' | 'warnings' | CueWarning;
 type SaveState = 'saving' | 'saved' | 'error';
@@ -27,6 +28,7 @@ const MAX_FAILURES = 3;
 })
 export class TranslationComponent implements OnInit {
   private api = inject(SubtitleService);
+  protected auth = inject(AuthService);
   private route = inject(ActivatedRoute);
   private destroyRef = inject(DestroyRef);
   private isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
