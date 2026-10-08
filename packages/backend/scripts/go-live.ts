@@ -54,7 +54,7 @@ const fail = (msg: string): never => {
 };
 
 /** Runs the Vercel CLI. Only constant words go in `argv`; secret values go through stdin. */
-function vercel(argv: string[], input?: string): { ok: boolean; out: string } {
+function vercel(argv: string[], input?: string): { ok: boolean; out: string; stdout: string } {
   const res = spawnSync('npx', ['--yes', 'vercel@latest', ...argv], {
     cwd: ROOT,
     input,
@@ -62,7 +62,7 @@ function vercel(argv: string[], input?: string): { ok: boolean; out: string } {
     shell: process.platform === 'win32',
     maxBuffer: 20 * 1024 * 1024,
   });
-  return { ok: res.status === 0, out: `${res.stdout ?? ''}${res.stderr ?? ''}` };
+  return { ok: res.status === 0, out: `${res.stdout ?? ''}${res.stderr ?? ''}`, stdout: res.stdout ?? '' };
 }
 
 function vercelApi<T = any>(apiPath: string, method = 'GET', body?: unknown): T {
@@ -70,7 +70,9 @@ function vercelApi<T = any>(apiPath: string, method = 'GET', body?: unknown): T 
   const argv = ['api', process.platform === 'win32' ? `"${apiPath}"` : apiPath, '-X', method, '--raw'];
   if (body !== undefined) argv.push('--input', '-');
   const res = vercel(argv, body === undefined ? undefined : JSON.stringify(body));
-  const json = res.out.slice(res.out.indexOf('{'));
+  // The JSON body is on stdout; the CLI writes its notices to stderr.
+  const src = res.stdout.includes('{') ? res.stdout : res.out;
+  const json = src.slice(src.indexOf('{')).trim();
   try {
     const parsed = JSON.parse(json);
     if (!res.ok && parsed?.error) throw new Error(parsed.error.message ?? JSON.stringify(parsed.error));
