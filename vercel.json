@@ -9,19 +9,6 @@
       "maxDuration": 60
     }
   },
-  "redirects": [
-    {
-      "source": "/:path*",
-      "has": [
-        {
-          "type": "host",
-          "value": "www.subtitle-translator.com.br"
-        }
-      ],
-      "destination": "https://subtitle-translator.com.br/:path*",
-      "permanent": true
-    }
-  ],
   "rewrites": [
     {
       "source": "/api/(.*)",
