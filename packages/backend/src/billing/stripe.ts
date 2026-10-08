@@ -33,6 +33,7 @@ export interface PromoInfo {
 export class PriceCatalog {
   private cache: { at: number; prices: Partial<Record<OfferKey, PriceInfo>> } | null = null;
   private promoCache: { at: number; promo: PromoInfo | null } | null = null;
+  private pixCache: { at: number; value: boolean } | null = null;
 
   constructor(private stripe: Stripe, private ttlMs = 10 * 60 * 1000) {}
 
@@ -55,6 +56,16 @@ export class PriceCatalog {
 
   async get(key: OfferKey): Promise<PriceInfo | null> {
     return (await this.all())[key] ?? null;
+  }
+
+  /** Whether Checkout can offer Pix right now (the account needs the Pix capability approved). */
+  async pixAvailable(): Promise<boolean> {
+    if (this.pixCache && Date.now() - this.pixCache.at < this.ttlMs) return this.pixCache.value;
+    const configs = (await this.stripe.paymentMethodConfigurations.list({ limit: 20 })).data;
+    const config = configs.find(c => c.is_default && !c.parent) ?? configs.find(c => c.is_default);
+    const value = !!config?.pix?.available && config.pix.display_preference?.value === 'on';
+    this.pixCache = { at: Date.now(), value };
+    return value;
   }
 
   /** The launch code while it is active in Stripe, so the site never advertises a dead coupon. */

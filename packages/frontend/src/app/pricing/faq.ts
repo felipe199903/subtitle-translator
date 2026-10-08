@@ -1,6 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../services/auth.service';
+import { BillingService } from '../services/billing.service';
 
 @Component({
   selector: 'app-faq',
@@ -24,7 +25,11 @@ import { AuthService } from '../services/auth.service';
     }
     <details class="card">
       <summary>Posso pagar com Pix?</summary>
-      <p>Sim, no Pro avulso (30 dias ou 12 meses). A assinatura mensal é cobrada no cartão de crédito, com renovação automática.</p>
+      @if (billing.pix()) {
+        <p>Sim, no Pro avulso (30 dias ou 12 meses). A assinatura mensal é cobrada no cartão de crédito, com renovação automática.</p>
+      } @else {
+        <p>Em breve. Por enquanto, o pagamento é no cartão de crédito: a assinatura mensal renova sozinha, e o Pro avulso (30 dias ou 12 meses) é cobrado uma única vez.</p>
+      }
     </details>
     <details class="card">
       <summary>Como cancelo a assinatura?</summary>
@@ -73,4 +78,9 @@ import { AuthService } from '../services/auth.service';
 })
 export class FaqComponent {
   protected auth = inject(AuthService);
+  protected billing = inject(BillingService);
+
+  constructor() {
+    this.billing.catalog();
+  }
 }

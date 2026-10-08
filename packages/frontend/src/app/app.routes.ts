@@ -30,7 +30,7 @@ export const routes: Routes = [
     title: `Planos e preços — ${NAME}`,
     data: {
       description:
-        'Grátis para 3 legendas por mês. Pro por R$ 19,90/mês no cartão ou avulso com Pix: mais legendas, arquivos maiores e tradução por IA.',
+        'Grátis para 3 legendas por mês. Pro por R$ 19,90/mês ou avulso por 30 dias ou 12 meses: mais legendas e arquivos maiores.',
     },
   },
   { path: 'entrar', component: LoginComponent, title: `Entrar — ${NAME}`, data: { noindex: true } },

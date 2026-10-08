@@ -5,6 +5,7 @@ import { PricingCardsComponent } from '../pricing/pricing-cards';
 import { FaqComponent } from '../pricing/faq';
 import { PromoComponent } from '../pricing/promo';
 import { AuthService } from '../services/auth.service';
+import { BillingService } from '../services/billing.service';
 
 @Component({
   selector: 'app-landing',
@@ -91,7 +92,7 @@ import { AuthService } from '../services/auth.service';
             <tr><td>Legendas por mês</td><td>3</td><td class="pro">até 200</td></tr>
             <tr><td>Tamanho do arquivo</td><td>até 1.500 falas</td><td class="pro">até 10.000 falas</td></tr>
             <tr><td>Revisão e memória de correções</td><td>✓</td><td class="pro">✓</td></tr>
-            <tr><td>Pagamento</td><td>—</td><td class="pro">cartão (mensal) ou Pix (avulso)</td></tr>
+            <tr><td>Pagamento</td><td>—</td><td class="pro">{{ billing.pix() ? 'cartão (mensal) ou Pix (avulso)' : 'cartão (mensal ou avulso)' }}</td></tr>
           </tbody>
         </table>
       </div>
@@ -306,4 +307,9 @@ import { AuthService } from '../services/auth.service';
 })
 export class LandingComponent {
   protected auth = inject(AuthService);
+  protected billing = inject(BillingService);
+
+  constructor() {
+    this.billing.catalog();
+  }
 }

@@ -1,4 +1,4 @@
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 
@@ -31,12 +31,18 @@ export class BillingService {
   private http = inject(HttpClient);
   private loading: Promise<{ prices: Record<OfferKey, Price>; promo: Promo | null }> | null = null;
 
+  /** Whether Checkout offers Pix right now; the copy only promises Pix when it does. */
+  readonly pix = signal(false);
+
   /** Live Stripe prices and the active launch coupon (fetched once per page load). */
   catalog(): Promise<{ prices: Record<OfferKey, Price>; promo: Promo | null }> {
     return (this.loading ??= firstValueFrom(
-      this.http.get<{ data: Partial<Record<OfferKey, Price>> | null; promo?: Promo | null }>('/api/billing/prices')
+      this.http.get<{ data: Partial<Record<OfferKey, Price>> | null; promo?: Promo | null; pix?: boolean }>('/api/billing/prices')
     ).then(
-      res => ({ prices: { ...DEFAULT_PRICES, ...(res.data ?? {}) }, promo: res.promo ?? null }),
+      res => {
+        this.pix.set(!!res.pix);
+        return { prices: { ...DEFAULT_PRICES, ...(res.data ?? {}) }, promo: res.promo ?? null };
+      },
       () => {
         this.loading = null;
         return { prices: DEFAULT_PRICES, promo: null };

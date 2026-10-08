@@ -45,7 +45,7 @@ import { apiErrorMessage } from '../services/subtitle.service';
       <article class="card plan">
         <h3>Pro avulso</h3>
         <p class="price"><strong>{{ fmt('pro_30d') }}</strong><span>/30 dias</span></p>
-        <p class="desc">Pague uma vez, com Pix ou cartão. Sem renovação automática.</p>
+        <p class="desc">Pague uma vez, {{ billing.pix() ? 'com Pix ou cartão' : 'no cartão' }}. Sem renovação automática.</p>
         <ul>
           <li><app-icon name="check" [size]="16" /> Tudo do Pro Mensal</li>
           <li><app-icon name="check" [size]="16" /> Ou 12 meses por {{ fmt('pro_365d') }} (economize 25%)</li>
@@ -160,7 +160,7 @@ import { apiErrorMessage } from '../services/subtitle.service';
 })
 export class PricingCardsComponent implements OnInit {
   protected auth = inject(AuthService);
-  private billing = inject(BillingService);
+  protected billing = inject(BillingService);
   private router = inject(Router);
 
   prices = signal(DEFAULT_PRICES);

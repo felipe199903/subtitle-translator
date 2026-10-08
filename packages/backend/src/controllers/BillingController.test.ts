@@ -21,6 +21,9 @@ function fakeStripe() {
   ];
   const stripe = {
     prices: { list: async () => ({ data: prices }) },
+    paymentMethodConfigurations: {
+      list: async () => ({ data: [{ id: 'pmc_1', is_default: true, parent: null, pix: { available: pixAvailable.value, display_preference: { value: 'on' } } }] }),
+    },
     promotionCodes: {
       list: async () => ({
         data: [{ code: 'LANCAMENTO', expires_at: null, promotion: { coupon: { percent_off: 30, duration: 'repeating', duration_in_months: 3 } } }],
@@ -54,9 +57,10 @@ function fakeStripe() {
       },
     },
   };
+  const pixAvailable = { value: true };
   const checkoutSessions = new Map<string, any>();
   const subscriptions = new Map<string, any>();
-  return { stripe: stripe as unknown as Stripe, calls, checkoutSessions, subscriptions };
+  return { stripe: stripe as unknown as Stripe, calls, checkoutSessions, subscriptions, pixAvailable };
 }
 
 const makeApp = (stripe: Stripe | null = fakeStripe().stripe) =>
@@ -116,6 +120,13 @@ describe('checkout', () => {
     const body = (await request(app).get('/api/billing/prices').expect(200)).body;
     expect(body.data.pro_365d).toEqual({ amount: 17900, currency: 'brl', interval: null });
     expect(body.promo).toEqual({ code: 'LANCAMENTO', percentOff: 30, months: 3, expiresAt: null });
+    expect(body.pix).toBe(true);
+  });
+
+  it('tells the site when Pix is not approved on the account yet', async () => {
+    const { stripe, pixAvailable } = fakeStripe();
+    pixAvailable.value = false;
+    expect((await request(makeApp(stripe)).get('/api/billing/prices').expect(200)).body.pix).toBe(false);
   });
 
   it('replaces a customer saved under another Stripe mode, and names the product on card statements', async () => {

@@ -33,7 +33,7 @@ import { COMPANY } from './company';
         você cancelar.
       </li>
       <li>
-        <strong>Pro avulso (30 dias ou 12 meses):</strong> pagamento único com Pix ou cartão, sem renovação automática.
+        <strong>Pro avulso (30 dias ou 12 meses):</strong> pagamento único no cartão ou, quando disponível no pagamento, com Pix, sem renovação automática.
         Novas compras somam os dias ao período que você já tem.
       </li>
     </ul>

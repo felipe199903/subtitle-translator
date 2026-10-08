@@ -34,11 +34,15 @@ export class BillingController {
       res.json({ data: null });
       return;
     }
-    const [all, promo] = await Promise.all([this.catalog.all(), this.catalog.promo().catch(() => null)]);
+    const [all, promo, pix] = await Promise.all([
+      this.catalog.all(),
+      this.catalog.promo().catch(() => null),
+      this.catalog.pixAvailable().catch(() => false),
+    ]);
     const data = Object.fromEntries(
       Object.entries(all).map(([k, p]) => [k, { amount: p!.amount, currency: p!.currency, interval: p!.interval }])
     );
-    res.json({ data, promo });
+    res.json({ data, promo, pix });
   });
 
   checkout = safe(async (req, res) => {
