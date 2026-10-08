@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import type Stripe from 'stripe';
-import { UserRepository } from '../db/users';
+import { User, UserRepository } from '../db/users';
 import { currentUser } from '../auth/session';
 import { OFFERS, hasLiveSubscription, isOfferKey, planOf } from '../auth/plans';
 import { PriceCatalog } from '../billing/stripe';
@@ -8,6 +8,13 @@ import { appUrl } from '../config';
 import { safe } from './safe';
 
 const NOT_CONFIGURED = 'Os pagamentos ainda não estão disponíveis. Tente novamente mais tarde.';
+/** Up to 22 characters together with the account's short descriptor; Latin letters only. */
+const STATEMENT_SUFFIX = 'SUBTITLE TRANSL';
+
+const isMissingCustomer = (e: unknown) => {
+  const err = e as { code?: string; param?: string; message?: string };
+  return err?.code === 'resource_missing' && (err.param === 'customer' || /customer/i.test(err.message ?? ''));
+};
 
 /** Stripe Checkout (subscription or one-off Pro pass), the Customer Portal and the webhook. */
 export class BillingController {
@@ -62,22 +69,11 @@ export class BillingController {
       return;
     }
 
-    let customer = user.stripeCustomerId;
-    if (!customer) {
-      customer = (await this.stripe.customers.create({
-        email: user.email,
-        name: user.name ?? undefined,
-        metadata: { userId: user.id },
-        preferred_locales: ['pt-BR'],
-      })).id;
-      await this.users.setStripeCustomer(user.id, customer);
-    }
-
     const base = appUrl(req);
     const mode = OFFERS[offer].mode;
     // Payment methods come from the Dashboard (card + Pix); Stripe only offers recurring-capable
     // ones for subscriptions, so Pix shows up for the one-off passes.
-    const session = await this.stripe.checkout.sessions.create({
+    const create = (customer: string) => this.stripe!.checkout.sessions.create({
       mode,
       customer,
       client_reference_id: user.id,
@@ -94,12 +90,37 @@ export class BillingController {
       ...(mode === 'subscription'
         ? { subscription_data: { metadata: { userId: user.id }, billing_mode: { type: 'flexible' as const } } }
         : {
-            // Stripe e-mails the receipt for one-off passes without any Dashboard setting.
-            payment_intent_data: { metadata: { userId: user.id, plan: offer }, receipt_email: user.email },
+            payment_intent_data: {
+              metadata: { userId: user.id, plan: offer },
+              // Stripe e-mails the receipt for one-off passes without any Dashboard setting.
+              receipt_email: user.email,
+              // Card statements show the product next to the account's descriptor.
+              statement_descriptor_suffix: STATEMENT_SUFFIX,
+            },
           }),
     });
+
+    let session: Stripe.Checkout.Session;
+    try {
+      session = await create(user.stripeCustomerId ?? (await this.newCustomer(user)));
+    } catch (e) {
+      // A customer saved under another Stripe account or mode (e.g. test → live) does not exist here.
+      if (!user.stripeCustomerId || !isMissingCustomer(e)) throw e;
+      session = await create(await this.newCustomer(user));
+    }
     res.json({ data: { url: session.url } });
   });
+
+  private async newCustomer(user: User): Promise<string> {
+    const customer = await this.stripe!.customers.create({
+      email: user.email,
+      name: user.name ?? undefined,
+      metadata: { userId: user.id },
+      preferred_locales: ['pt-BR'],
+    });
+    await this.users.setStripeCustomer(user.id, customer.id);
+    return customer.id;
+  }
 
   portal = safe(async (req, res) => {
     const user = currentUser(res);
@@ -111,11 +132,20 @@ export class BillingController {
       res.status(400).json({ error: 'Você ainda não tem compras para gerenciar.' });
       return;
     }
-    const session = await this.stripe.billingPortal.sessions.create({
-      customer: user.stripeCustomerId,
-      return_url: `${appUrl(req)}/conta`,
-      ...(process.env.STRIPE_PORTAL_CONFIGURATION ? { configuration: process.env.STRIPE_PORTAL_CONFIGURATION } : {}),
-    });
+    const session = await this.stripe.billingPortal.sessions
+      .create({
+        customer: user.stripeCustomerId,
+        return_url: `${appUrl(req)}/conta`,
+        ...(process.env.STRIPE_PORTAL_CONFIGURATION ? { configuration: process.env.STRIPE_PORTAL_CONFIGURATION } : {}),
+      })
+      .catch(e => {
+        if (isMissingCustomer(e)) return null;
+        throw e;
+      });
+    if (!session) {
+      res.status(400).json({ error: 'Você ainda não tem compras para gerenciar.' });
+      return;
+    }
     res.json({ data: { url: session.url } });
   });
 

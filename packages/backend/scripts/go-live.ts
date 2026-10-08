@@ -26,7 +26,9 @@ import {
   DnsRecord,
   SITE_DOMAIN,
   envToPublish,
+  isLiveStripeKey,
   mask,
+  permissionHint,
   missingRecords,
   normalizeKeys,
   wantedRecords,
@@ -161,7 +163,7 @@ async function main() {
   if (keys.STRIPE_SECRET_KEY) {
     stripe = new Stripe(keys.STRIPE_SECRET_KEY.trim());
     account = await stripe.accounts.retrieveCurrent().catch(e => fail(`Chave do Stripe recusada: ${e.message}`));
-    const live = keys.STRIPE_SECRET_KEY.trim().startsWith('sk_live');
+    const live = isLiveStripeKey(keys.STRIPE_SECRET_KEY);
     ok(`Stripe: ${account!.id} · ${account!.settings?.dashboard?.display_name || account!.business_profile?.name || '(sem nome)'} · ${live ? 'PRODUÇÃO' : 'TESTE'} · país ${account!.country} · cobranças ${account!.charges_enabled ? 'liberadas' : 'ainda não liberadas (termine a ativação)'}`);
   }
   if (keys.RESEND_API_KEY) {
@@ -195,7 +197,10 @@ async function main() {
   if (stripe) {
     console.log('\n— Stripe');
     const haveSecret = !!keys.STRIPE_WEBHOOK_SECRET?.trim() || existingEnv.has('STRIPE_WEBHOOK_SECRET');
-    const { webhookSecret } = await setupStripe(stripe, { site: SITE, recreateWebhook: !haveSecret });
+    const { webhookSecret } = await setupStripe(stripe, { site: SITE, recreateWebhook: !haveSecret }).catch(e => {
+      const hint = permissionHint(e instanceof Error ? e.message : String(e));
+      throw new Error(hint ? `${e.message}\n  → ${hint}` : e.message);
+    });
     if (webhookSecret) env.push({ name: 'STRIPE_WEBHOOK_SECRET', value: webhookSecret });
   }
 

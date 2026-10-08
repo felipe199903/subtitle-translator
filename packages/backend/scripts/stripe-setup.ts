@@ -49,7 +49,7 @@ async function main() {
 
   const account = await stripe.accounts.retrieveCurrent();
   const name = account.settings?.dashboard?.display_name || account.business_profile?.name || '(sem nome)';
-  console.log(`Conta Stripe: ${account.id} · ${name} · ${key.startsWith('sk_live') ? 'PRODUÇÃO' : 'teste'} · país ${account.country}`);
+  console.log(`Conta Stripe: ${account.id} · ${name} · ${/^[sr]k_live_/.test(key) ? 'PRODUÇÃO' : 'teste'} · país ${account.country}`);
   if (arg('confirm') !== account.id) {
     console.log(`\nNada foi alterado. Confira se esta é a conta nova do Subtitle Translator e rode de novo com:\n  --confirm ${account.id}`);
     return;

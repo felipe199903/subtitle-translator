@@ -1,4 +1,14 @@
-import { DEFAULT_EMAIL_FROM, envToPublish, mask, missingRecords, normalizeKeys, relativeName, wantedRecords } from './goLive';
+import {
+  DEFAULT_EMAIL_FROM,
+  envToPublish,
+  isLiveStripeKey,
+  mask,
+  missingRecords,
+  normalizeKeys,
+  permissionHint,
+  relativeName,
+  wantedRecords,
+} from './goLive';
 
 describe('go-live helpers', () => {
   it('publishes only the keys that have a value, with a default sender', () => {
@@ -47,6 +57,20 @@ describe('go-live helpers', () => {
     expect(keys).toMatchObject({ RESEND_API_KEY: 're_1', STRIPE_SECRET_KEY: 'sk_test_2' });
     expect(envToPublish(keys).map(e => e.name)).toEqual(['RESEND_API_KEY', 'EMAIL_FROM', 'STRIPE_SECRET_KEY']);
     expect(normalizeKeys({ STRIPE_SECRET_KEY: 'sk_live_a', 'STRIPE-CHAVE-SECRETA': 'sk_test_b' }).STRIPE_SECRET_KEY).toBe('sk_live_a');
+  });
+
+  it('recognises live keys, secret or restricted', () => {
+    expect(isLiveStripeKey('rk_live_abc')).toBe(true);
+    expect(isLiveStripeKey(' sk_live_abc')).toBe(true);
+    expect(isLiveStripeKey('sk_test_abc')).toBe(false);
+    expect(isLiveStripeKey('rk_test_abc')).toBe(false);
+    expect(mask('rk_live_abcd1234')).toBe('rk_live_…1234');
+  });
+
+  it('explains missing permissions of a restricted key', () => {
+    expect(permissionHint('The provided key does not have the required permissions for this endpoint')).toMatch(/Gravação/);
+    expect(permissionHint("Having the 'rak_webhook_write' permission would allow this request to continue.")).toMatch(/permissão/);
+    expect(permissionHint('No such customer')).toBeNull();
   });
 
   it('masks secrets', () => {

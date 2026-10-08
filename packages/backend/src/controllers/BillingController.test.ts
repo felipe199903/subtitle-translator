@@ -29,7 +29,13 @@ function fakeStripe() {
     customers: { create: async (p: any) => (calls.customers.push(p), { id: 'cus_123' }) },
     checkout: {
       sessions: {
-        create: async (p: any) => (calls.sessions.push(p), { url: 'https://checkout.stripe.com/c/pay/x' }),
+        create: async (p: any) => {
+          if (p.customer === 'cus_from_test_mode') {
+            throw Object.assign(new Error("No such customer: 'cus_from_test_mode'"), { code: 'resource_missing', param: 'customer' });
+          }
+          calls.sessions.push(p);
+          return { url: 'https://checkout.stripe.com/c/pay/x' };
+        },
         retrieve: async (id: string) => {
           const s = checkoutSessions.get(id);
           if (!s) throw new Error('No such checkout session');
@@ -110,6 +116,21 @@ describe('checkout', () => {
     const body = (await request(app).get('/api/billing/prices').expect(200)).body;
     expect(body.data.pro_365d).toEqual({ amount: 17900, currency: 'brl', interval: null });
     expect(body.promo).toEqual({ code: 'LANCAMENTO', percentOff: 30, months: 3, expiresAt: null });
+  });
+
+  it('replaces a customer saved under another Stripe mode, and names the product on card statements', async () => {
+    const { stripe, calls } = fakeStripe();
+    const app = makeApp(stripe);
+    const { user, cookie } = await signIn(t.db);
+    await new UserRepository(t.db).setStripeCustomer(user.id, 'cus_from_test_mode');
+
+    await request(app).post('/api/billing/checkout').set('Cookie', cookie).send({ plan: 'pro_30d' }).expect(200);
+    expect(calls.customers).toHaveLength(1);
+    expect(calls.sessions[0]).toMatchObject({
+      customer: 'cus_123',
+      payment_intent_data: { statement_descriptor_suffix: 'SUBTITLE TRANSL' },
+    });
+    expect((await new UserRepository(t.db).get(user.id))!.stripeCustomerId).toBe('cus_123');
   });
 
   it('does not sell a second subscription, and opens the portal for customers', async () => {

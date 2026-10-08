@@ -101,8 +101,21 @@ export function missingRecords(wanted: DnsRecord[], existing: DnsRecord[]): { cr
   return { create, conflicts };
 }
 
+/** Secret (sk_) and restricted (rk_) keys alike: true for the live (real money) mode. */
+export const isLiveStripeKey = (key: string) => /^[sr]k_live_/.test(key.trim());
+
+/**
+ * A restricted key that lacks a permission fails with a message naming the resource; turn it into
+ * the instruction to fix it in the Dashboard (Developers → API keys → edit the key).
+ */
+export function permissionHint(message: string): string | null {
+  if (!/permission|does not have the required|restricted key/i.test(message)) return null;
+  const resource = /\b(?:for|on|to)\s+['"`]?([a-z_.]+(?:\.[a-z_]+)?)['"`]?/i.exec(message)?.[1];
+  return `A chave restrita não tem permissão${resource ? ` para "${resource}"` : ''}. No Stripe: Desenvolvedores → Chaves de API → editar a chave → liberar "Gravação" nesse recurso, e rode o go-live de novo.`;
+}
+
 /** Never print a secret: show its kind and last 4 characters. */
 export function mask(value: string): string {
-  const prefix = /^(sk_live_|sk_test_|re_|whsec_|AIza)/.exec(value)?.[0] ?? '';
+  const prefix = /^([sr]k_live_|[sr]k_test_|re_|whsec_|AIza)/.exec(value)?.[0] ?? '';
   return `${prefix}…${value.slice(-4)}`;
 }
