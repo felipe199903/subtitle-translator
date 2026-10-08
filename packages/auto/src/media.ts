@@ -1,5 +1,6 @@
 import { execFile } from 'child_process';
 import { promises as fs } from 'fs';
+import os from 'os';
 import path from 'path';
 import { promisify } from 'util';
 import { ProbeStream, VIDEO_EXTS } from './classify';
@@ -44,7 +45,7 @@ export async function probeStreams(file: string): Promise<ProbeStream[]> {
   const { stdout } = await run(
     'ffprobe',
     ['-v', 'error', '-show_entries', 'stream=index,codec_type,codec_name:stream_tags=language,title:stream_disposition=forced,hearing_impaired', '-of', 'json', file],
-    { timeout: 60_000, maxBuffer: 10 * 1024 * 1024 }
+    { timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }
   );
   return JSON.parse(stdout).streams ?? [];
 }
@@ -52,14 +53,18 @@ export async function probeStreams(file: string): Promise<ProbeStream[]> {
 /**
  * Extracts an embedded subtitle stream. ASS/SSA is copied as-is (so signs and karaoke can
  * be filtered by style); other text formats are converted to SRT by ffmpeg.
+ * Written to a temp file instead of stdout: heavily typeset ASS (anime BDs) can exceed any
+ * sensible in-memory buffer for the child process output.
  */
 export async function extractSubtitle(file: string, streamIndex: number, format: 'srt' | 'ass'): Promise<Buffer> {
-  const args = ['-v', 'error', '-i', file, '-map', `0:${streamIndex}`];
-  args.push(...(format === 'ass' ? ['-c:s', 'copy', '-f', 'ass'] : ['-f', 'srt']), '-');
-  const { stdout } = await run('ffmpeg', args, {
-    timeout: 10 * 60_000,
-    maxBuffer: 50 * 1024 * 1024,
-    encoding: 'buffer',
-  });
-  return stdout as unknown as Buffer;
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'sub-'));
+  const out = path.join(dir, `sub.${format}`);
+  try {
+    const args = ['-v', 'error', '-y', '-i', file, '-map', `0:${streamIndex}`];
+    args.push(...(format === 'ass' ? ['-c:s', 'copy', '-f', 'ass'] : ['-f', 'srt']), out);
+    await run('ffmpeg', args, { timeout: 10 * 60_000, maxBuffer: 10 * 1024 * 1024 });
+    return await fs.readFile(out);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 }
