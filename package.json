@@ -16,6 +16,7 @@
     "test:auto": "npm test --workspace packages/auto",
     "e2e:live": "npm run e2e:live --workspace packages/backend",
     "stripe:setup": "npm run stripe:setup --workspace packages/backend --",
+    "go-live": "npm run go-live --workspace packages/backend --",
     "smoke": "npm run smoke --workspace packages/backend --"
   },
   "devDependencies": {

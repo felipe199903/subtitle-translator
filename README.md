@@ -28,30 +28,31 @@ Traduzir exige conta (Google ou link por e-mail, sem senha). A landing, os preç
 3. Opcional: em **Settings → Environment Variables**, defina `MYMEMORY_EMAIL` (aumenta a cota do tradutor reserva).
 4. Faça o redeploy e abra `https://subtitle-translator.com.br/api/health`. Deve responder `{"status":"OK","database":"ok"}`. Se o banco não estiver conectado, a própria resposta explica o que falta.
 
-## Colocando à venda (checklist)
+## Colocando à venda
 
-O código está pronto; estes passos dependem de contas e painéis externos.
+O que já está pronto em produção: domínio (com `www` redirecionando), HTTPS, `SESSION_SECRET`, `APP_URL`, Web Analytics e os dados do responsável nas páginas legais.
 
-1. **Domínio (Vercel → Settings → Domains):** adicione `subtitle-translator.com.br` e `www.subtitle-translator.com.br`, este redirecionando para o primeiro. No Registro.br, aponte o DNS como a Vercel indicar (registro A do domínio raiz e CNAME do `www`). O HTTPS é automático.
-2. **Dados do responsável:** preencha `holder` (nome ou razão social) e `document` (CPF ou CNPJ) em `packages/frontend/src/app/legal/company.ts`. O Decreto 7.962/2013 exige esses dados em sites que vendem.
-3. **E-mail de contato:** é o `email` de `packages/frontend/src/app/legal/company.ts` e aparece nos termos, no rodapé e no Stripe. Quando quiser um endereço do domínio, crie um encaminhamento (Cloudflare Email Routing ou ImprovMX) e troque lá.
-4. **Stripe (conta nova, só deste projeto):**
-   - Crie a conta em <https://dashboard.stripe.com/register> e ative-a com CPF ou CNPJ, conta bancária, site `https://subtitle-translator.com.br`, descritor de fatura `SUBTITLE TRANSLATOR` e o e-mail de suporte.
-   - **Settings → Payment methods:** ative o **Pix** e mantenha os cartões.
-   - **Settings → Emails:** ative os recibos de pagamentos bem-sucedidos e de reembolsos.
-   - Rode o setup, primeiro com a chave de teste e depois com a de produção. Sem `--confirm`, ele só mostra qual conta vai usar:
-     ```bash
-     STRIPE_SECRET_KEY=sk_test_... npm run stripe:setup
-     STRIPE_SECRET_KEY=sk_test_... npm run stripe:setup -- --confirm acct_...
-     ```
-     Ele cria o produto, os 3 preços, o Portal do Cliente, o webhook `https://subtitle-translator.com.br/api/billing/webhook` (e imprime o `STRIPE_WEBHOOK_SECRET`) e o cupom de lançamento **LANCAMENTO** (30% nos 3 primeiros meses, 100 usos, 60 dias). A faixa do cupom aparece no site só enquanto o código está ativo no Stripe. É seguro rodar de novo.
-5. **Login com Google (Google Cloud Console → APIs e serviços → Credenciais):** crie um *ID do cliente OAuth* do tipo **Aplicativo da Web** com as origens JavaScript `https://subtitle-translator.com.br` e `http://localhost:4200`. Na tela de consentimento, use o nome do app, o logo e os links de termos e privacidade.
-6. **E-mail de acesso (Resend):** em <https://resend.com>, adicione o domínio, crie no Registro.br os registros SPF e DKIM (e um DMARC) que ele mostrar e gere uma API key.
-7. **Variáveis na Vercel (Production):** cadastre as da tabela abaixo e faça o Redeploy.
-8. **Teste de ponta a ponta em produção:** entre com o Google e com o link por e-mail, assine com cartão, compre um passe com Pix, cancele pelo portal e confira em **Minha conta**. Em Developers → Webhooks, os eventos devem aparecer com resposta 200.
-9. **IA no Pro:** crie uma chave em <https://aistudio.google.com/apikey> **num projeto com faturamento ativo** (o nível gratuito pode usar os dados para treino e tem cotas baixas) e cadastre `GEMINI_API_KEY` na Vercel.
-10. **Analytics:** em Vercel → Analytics, ative o Web Analytics (sem cookies; o código já envia as visitas, sem query string).
-11. **Fiscal:** com um contador, defina o enquadramento (MEI ou ME) e a emissão de NFS-e das vendas. Isso fica fora do código.
+Falta só o que depende da sua identidade. Depois disso, um comando faz o resto.
+
+1. **Resend:** crie a conta em <https://resend.com> e gere uma API key com permissão *Full access*.
+2. **Stripe (conta nova, só deste projeto):** crie a conta em <https://dashboard.stripe.com/register> e ative-a com CPF, conta bancária, site `https://subtitle-translator.com.br`, descritor `SUBTITLE TRANSLATOR` e e-mail de suporte. Copie a *Secret key* (comece pela `sk_test_` se quiser testar antes).
+3. **Opcional:** a chave do Gemini (<https://aistudio.google.com/apikey>, num projeto com faturamento) e o *ID do cliente OAuth* do Google (Aplicativo da Web, origem `https://subtitle-translator.com.br`).
+4. **Go-live:** copie `.env.production.example` para `.env.production.local`, preencha e rode:
+   ```bash
+   npm run go-live -- --dry-run            # confere as chaves, não altera nada
+   npm run go-live -- --confirm acct_...   # aplica
+   ```
+   O `go-live`:
+   - no **Stripe**, cria produto, preços, portal, webhook (e guarda o segredo), cupom **LANCAMENTO** e ativa o **Pix**;
+   - no **Resend**, cadastra o domínio, cria os registros SPF/DKIM/DMARC no DNS da Vercel e pede a verificação;
+   - na **Vercel**, grava as variáveis em Production e refaz o deploy;
+   - no fim, confere a produção (banco, Google, IA, preços e envio do link).
+
+   Ele nunca mostra os valores das chaves e é seguro rodar de novo. Para trocar a chave de teste pela de produção, edite o arquivo e rode outra vez.
+5. **Compra real:** assine com o seu cartão e compre um passe com Pix, e reembolse as duas compras pelo Stripe.
+6. **Fiscal:** com um contador, defina o enquadramento (MEI ou ME) e a emissão de NFS-e. Isso fica fora do código.
+
+O `npm run stripe:setup` continua disponível para mexer só no Stripe (por exemplo, depois de mudar um preço no script).
 
 ## Como funciona
 

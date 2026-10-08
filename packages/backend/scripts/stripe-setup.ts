@@ -52,6 +52,25 @@ async function main() {
     return;
   }
   if (account.country !== 'BR') console.warn('⚠️  A conta não é do Brasil: Pix e BRL podem não estar disponíveis.');
+  const { webhookSecret, webhookCreated } = await setupStripe(stripe, { site });
+  if (webhookCreated && webhookSecret) {
+    console.log(`\n  STRIPE_WEBHOOK_SECRET=${webhookSecret}\n\n  Cadastre esse valor na Vercel (Production) e faça Redeploy (ou use npm run go-live).`);
+  }
+}
+
+export interface SetupResult {
+  /** Signing secret of the webhook, known only when it was (re)created in this run. */
+  webhookSecret: string | null;
+  webhookCreated: boolean;
+}
+
+/**
+ * Creates or updates everything the app needs in the given (already confirmed) Stripe account.
+ * `recreateWebhook`: Stripe shows a webhook's secret only at creation, so go-live recreates the
+ * endpoint when it needs the secret and does not have it.
+ */
+export async function setupStripe(stripe: Stripe, opts: { site: string; recreateWebhook?: boolean }): Promise<SetupResult> {
+  const { site } = opts;
 
   // Product
   let product = await stripe.products.retrieve(PRODUCT_ID).catch(() => null);
@@ -129,16 +148,40 @@ async function main() {
   const url = `${site}/api/billing/webhook`;
   const hooks = await stripe.webhookEndpoints.list({ limit: 100 });
   const hook = hooks.data.find(h => h.url === url);
-  if (hook) {
+  let webhookSecret: string | null = null;
+  let webhookCreated = false;
+  if (hook && !opts.recreateWebhook) {
     await stripe.webhookEndpoints.update(hook.id, { enabled_events: EVENTS, disabled: false });
     console.log(`✓ Webhook atualizado: ${url} (${hook.id}). O segredo continua o mesmo (veja no Dashboard).`);
   } else {
+    if (hook) {
+      await stripe.webhookEndpoints.del(hook.id);
+      console.log(`• Webhook antigo removido para gerar um segredo novo (${hook.id})`);
+    }
     const created = await stripe.webhookEndpoints.create({
       url,
       enabled_events: EVENTS,
       description: 'Subtitle Translator: planos e pagamentos',
     });
-    console.log(`✓ Webhook criado: ${url}\n\n  STRIPE_WEBHOOK_SECRET=${created.secret}\n\n  Cadastre esse valor na Vercel (Production) e faça Redeploy.`);
+    webhookSecret = created.secret ?? null;
+    webhookCreated = true;
+    console.log(`✓ Webhook criado: ${url} (${created.id})`);
+  }
+
+  // Pix (and cards) on the account's default payment method configuration
+  try {
+    const configs = (await stripe.paymentMethodConfigurations.list({ limit: 20 })).data;
+    const config = configs.find(c => c.is_default && !c.parent) ?? configs.find(c => c.is_default);
+    if (!config) {
+      console.warn('⚠️  Nenhuma configuração de meios de pagamento padrão encontrada: ative o Pix no Dashboard.');
+    } else if (config.pix?.display_preference?.value === 'on') {
+      console.log('• Pix já está ativo');
+    } else {
+      await stripe.paymentMethodConfigurations.update(config.id, { pix: { display_preference: { preference: 'on' } } });
+      console.log(`✓ Pix ativado (${config.id})`);
+    }
+  } catch (e) {
+    console.warn(`⚠️  Não foi possível ativar o Pix pela API (${e instanceof Error ? e.message : e}). Ative em Settings → Payment methods.`);
   }
 
   // Launch coupon
@@ -171,10 +214,13 @@ async function main() {
     console.log(`• Código LANCAMENTO já existe (${promo.active ? 'ativo' : 'inativo'}, ${promo.times_redeemed} usos)`);
   }
 
-  console.log('\nFalta no Dashboard: ativar Pix em Settings → Payment methods e os recibos por e-mail em Settings → Emails.');
+  console.log('\nNo Dashboard, só falta conferir os recibos por e-mail em Settings → Emails.');
+  return { webhookSecret, webhookCreated };
 }
 
-main().catch(e => {
-  console.error(`✗ ${e instanceof Error ? e.message : e}`);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch(e => {
+    console.error(`✗ ${e instanceof Error ? e.message : e}`);
+    process.exit(1);
+  });
+}

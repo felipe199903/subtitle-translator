@@ -92,7 +92,10 @@ export class BillingController {
       },
       ...(mode === 'subscription'
         ? { subscription_data: { metadata: { userId: user.id } } }
-        : { payment_intent_data: { metadata: { userId: user.id, plan: offer } } }),
+        : {
+            // Stripe e-mails the receipt for one-off passes without any Dashboard setting.
+            payment_intent_data: { metadata: { userId: user.id, plan: offer }, receipt_email: user.email },
+          }),
     });
     res.json({ data: { url: session.url } });
   });

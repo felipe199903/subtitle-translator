@@ -76,6 +76,7 @@ describe('checkout', () => {
       line_items: [{ price: 'price_30', quantity: 1 }],
       locale: 'pt-BR',
       metadata: { plan: 'pro_30d', userId: user.id },
+      payment_intent_data: { receipt_email: 'ana@example.com' },
     });
 
     await request(app).post('/api/billing/checkout').set('Cookie', cookie).send({ plan: 'pro_monthly' }).expect(200);

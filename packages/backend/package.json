@@ -10,6 +10,7 @@
     "test": "node --experimental-vm-modules --no-warnings=ExperimentalWarning ../../node_modules/jest/bin/jest.js --config jest.config.js",
     "e2e:live": "tsx scripts/e2e-live.ts",
     "stripe:setup": "tsx scripts/stripe-setup.ts",
+    "go-live": "tsx scripts/go-live.ts",
     "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {
