@@ -63,8 +63,23 @@ function fakeStripe() {
   return { stripe: stripe as unknown as Stripe, calls, checkoutSessions, subscriptions, pixAvailable };
 }
 
+/** E-mails the app would send, newest last (reset before each test). */
+let sentMail: Array<{ to: string; subject: string; text: string }> = [];
+beforeEach(() => {
+  sentMail = [];
+});
+
 const makeApp = (stripe: Stripe | null = fakeStripe().stripe) =>
-  createApp({ db: t.db, primary: new FakeProvider(), fallback: null, stripe, stripeWebhookSecret: SECRET });
+  createApp({
+    db: t.db,
+    primary: new FakeProvider(),
+    fallback: null,
+    stripe,
+    stripeWebhookSecret: SECRET,
+    mailer: async (to, subject, _html, text) => {
+      sentMail.push({ to, subject, text });
+    },
+  });
 
 let seq = 0;
 function send(app: any, type: string, object: any, opts: { id?: string; created?: number } = {}) {
@@ -170,7 +185,7 @@ describe('webhook', () => {
   it('grants a paid pass once, even if the event is delivered twice', async () => {
     const app = makeApp();
     const { user, cookie } = await signIn(t.db);
-    const session = { id: 'cs_1', object: 'checkout.session', mode: 'payment', payment_status: 'paid', client_reference_id: user.id, metadata: { plan: 'pro_30d', userId: user.id } };
+    const session = { id: 'cs_1', object: 'checkout.session', mode: 'payment', payment_status: 'paid', amount_total: 1990, client_reference_id: user.id, metadata: { plan: 'pro_30d', userId: user.id } };
 
     await send(app, 'checkout.session.completed', session, { id: 'evt_dup' }).expect(200);
     const first = await me(app, cookie);
@@ -179,6 +194,30 @@ describe('webhook', () => {
 
     expect((await send(app, 'checkout.session.completed', session, { id: 'evt_dup' }).expect(200)).body.duplicate).toBe(true);
     expect((await me(app, cookie)).proUntil).toBe(first.proUntil);
+
+    // One "payment confirmed" e-mail, with the plan and the amount, even with the duplicate delivery.
+    expect(sentMail).toHaveLength(1);
+    expect(sentMail[0]).toMatchObject({ to: 'ana@example.com', subject: expect.stringMatching(/Pagamento confirmado/) });
+    expect(sentMail[0].text).toMatch(/Pro 30 dias/);
+    expect(sentMail[0].text).toMatch(/R\$\s?19,90/);
+  });
+
+  it('e-mails the confirmation of a new subscription once, and a mail failure does not fail the webhook', async () => {
+    const app = makeApp();
+    const { user } = await signIn(t.db);
+    const session = { id: 'cs_sub_mail', object: 'checkout.session', mode: 'subscription', payment_status: 'paid', amount_total: 1990, client_reference_id: user.id, metadata: { plan: 'pro_monthly' } };
+    await send(app, 'checkout.session.completed', session).expect(200);
+    await send(app, 'checkout.session.completed', session).expect(200);
+    expect(sentMail).toHaveLength(1);
+    expect(sentMail[0].text).toMatch(/Pro Mensal/);
+
+    const failing = createApp({
+      db: t.db, primary: new FakeProvider(), fallback: null, stripe: fakeStripe().stripe, stripeWebhookSecret: SECRET,
+      mailer: async () => { throw new Error('Resend fora do ar'); },
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    await send(failing, 'checkout.session.completed', { ...session, id: 'cs_sub_mail2' }).expect(200);
+    warn.mockRestore();
   });
 
   it('waits for Pix to be confirmed, and stacks passes', async () => {

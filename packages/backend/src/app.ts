@@ -62,7 +62,7 @@ export function createApp({
     : pipeline;
   const controller = new JobController(new JobRepository(db), memory, pipeline, users, proPipeline, !!proPrimary);
   const auth = new AuthController(users, mailer, google, stripe);
-  const billing = new BillingController(users, stripe, stripeWebhookSecret);
+  const billing = new BillingController(users, stripe, stripeWebhookSecret, mailer);
 
   const app = express();
   app.use(helmet());

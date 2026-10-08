@@ -2,7 +2,8 @@ import { Request, Response } from 'express';
 import type Stripe from 'stripe';
 import { User, UserRepository } from '../db/users';
 import { currentUser } from '../auth/session';
-import { OFFERS, hasLiveSubscription, isOfferKey, planOf } from '../auth/plans';
+import { OFFERS, OfferKey, hasLiveSubscription, isOfferKey, planOf } from '../auth/plans';
+import { Mailer, purchaseEmail } from '../auth/mailer';
 import { PriceCatalog } from '../billing/stripe';
 import { appUrl } from '../config';
 import { safe } from './safe';
@@ -10,6 +11,12 @@ import { safe } from './safe';
 const NOT_CONFIGURED = 'Os pagamentos ainda não estão disponíveis. Tente novamente mais tarde.';
 /** Up to 22 characters together with the account's short descriptor; Latin letters only. */
 const STATEMENT_SUFFIX = 'SUBTITLE TRANSL';
+
+const PLAN_LABELS: Record<OfferKey, string> = {
+  pro_monthly: 'Pro Mensal (assinatura, renova todo mês)',
+  pro_30d: 'Pro 30 dias (pagamento único)',
+  pro_365d: 'Pro 12 meses (pagamento único)',
+};
 
 const isMissingCustomer = (e: unknown) => {
   const err = e as { code?: string; param?: string; message?: string };
@@ -23,9 +30,30 @@ export class BillingController {
   constructor(
     private users: UserRepository,
     private stripe: Stripe | null,
-    private webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+    private webhookSecret = process.env.STRIPE_WEBHOOK_SECRET,
+    private mailer: Mailer | null = null
   ) {
     this.catalog = stripe ? new PriceCatalog(stripe) : null;
+  }
+
+  /** "Payment confirmed" e-mail, once per Checkout Session; a failure never undoes the purchase. */
+  private async confirmByEmail(s: Stripe.Checkout.Session, userId: string): Promise<void> {
+    if (!this.mailer || !(await this.users.recordEvent(`mail:${s.id}`, 'purchase_email'))) return;
+    try {
+      const user = await this.users.get(userId);
+      if (!user) return;
+      const offer = s.metadata?.plan;
+      const site = (process.env.APP_URL || 'https://subtitle-translator.com.br').replace(/\/+$/, '');
+      const { subject, html, text } = purchaseEmail({
+        plan: isOfferKey(offer) ? PLAN_LABELS[offer] : 'Pro',
+        amountCents: s.amount_total ?? null,
+        until: user.proUntil ? new Date(user.proUntil) : user.subPeriodEnd ? new Date(user.subPeriodEnd) : null,
+        accountUrl: `${site}/conta`,
+      });
+      await this.mailer(user.email, subject, html, text);
+    } catch (e) {
+      console.warn(`E-mail de confirmação da sessão ${s.id} não foi enviado:`, e);
+    }
   }
 
   /** Current prices, so the pricing page always shows what Stripe will charge. */
@@ -217,6 +245,9 @@ export class BillingController {
         const s = event.data.object;
         // Pix completes the session first as "unpaid" and confirms later with async_payment_succeeded.
         if (s.mode === 'payment' && s.payment_status === 'paid') await this.grantPass(s);
+        if (s.mode === 'subscription' && s.payment_status === 'paid' && s.client_reference_id) {
+          await this.confirmByEmail(s, s.client_reference_id);
+        }
         return;
       }
       case 'checkout.session.async_payment_failed':
@@ -284,5 +315,6 @@ export class BillingController {
       await this.users.forgetEvent(key).catch(() => {});
       throw e;
     }
+    await this.confirmByEmail(s, userId);
   }
 }
