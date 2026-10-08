@@ -7,5 +7,6 @@ export function createBillingRoutes(controller: BillingController) {
   router.get('/prices', controller.prices);
   router.post('/checkout', requireUser, controller.checkout);
   router.post('/portal', requireUser, controller.portal);
+  router.post('/sync', requireUser, controller.sync);
   return router;
 }

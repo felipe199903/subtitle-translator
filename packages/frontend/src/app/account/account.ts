@@ -214,11 +214,17 @@ export class AccountComponent implements OnInit, OnDestroy {
   });
 
   async ngOnInit(): Promise<void> {
-    await this.auth.refresh();
-    if (this.route.snapshot.queryParamMap.get('checkout') === 'ok') {
+    const query = this.route.snapshot.queryParamMap;
+    const fromCheckout = query.get('checkout') === 'ok';
+    const sessionId = query.get('session_id');
+    if (fromCheckout) {
       this.router.navigate([], { queryParams: {}, replaceUrl: true });
-      this.waitForPlan();
+      this.checkout.set('waiting');
+      // Apply the purchase now; if it fails (or Pix is still pending), the polling below waits for the webhook.
+      if (sessionId) await this.billing.sync(sessionId).catch(() => {});
     }
+    await this.auth.refresh();
+    if (fromCheckout) this.waitForPlan();
   }
 
   ngOnDestroy(): void {

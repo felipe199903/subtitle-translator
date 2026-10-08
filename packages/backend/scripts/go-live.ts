@@ -28,6 +28,7 @@ import {
   envToPublish,
   mask,
   missingRecords,
+  normalizeKeys,
   wantedRecords,
 } from '../src/ops/goLive';
 
@@ -129,7 +130,7 @@ function readEnvFile(file: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const raw of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
     const line = raw.trim();
-    const m = /^([A-Z][A-Z0-9_]*)\s*=\s*(.*)$/.exec(line);
+    const m = /^([A-Za-z][A-Za-z0-9_-]*)\s*=\s*(.*)$/.exec(line);
     if (!m || line.startsWith('#')) continue;
     out[m[1]] = m[2].replace(/^(['"])(.*)\1$/, '$2');
   }
@@ -140,10 +141,13 @@ async function main() {
   const dryRun = flag('dry-run');
   console.log(`Go-live de ${SITE}${dryRun ? ' (simulação: nada será alterado)' : ''}\n`);
 
-  if (!fs.existsSync(KEYS_FILE)) {
+  // .env.production.local first; otherwise the .env where the keys already are.
+  const keysFile = [KEYS_FILE, path.join(ROOT, '.env')].find(f => fs.existsSync(f));
+  if (!keysFile) {
     fail(`Crie o arquivo .env.production.local na raiz do repositório (${ROOT}) com as chaves. Modelo: .env.production.example`);
   }
-  const keys = readEnvFile(KEYS_FILE);
+  info(`Chaves lidas de ${path.basename(keysFile!)}`);
+  const keys = normalizeKeys(readEnvFile(keysFile!));
   const toPublish = envToPublish(keys);
   for (const k of ['RESEND_API_KEY', 'STRIPE_SECRET_KEY', 'GEMINI_API_KEY', 'GOOGLE_CLIENT_ID']) {
     if (!keys[k]?.trim()) (k === 'RESEND_API_KEY' || k === 'STRIPE_SECRET_KEY' ? warn : info)(`${k} ausente${k.startsWith('GEMINI') || k.startsWith('GOOGLE') ? ' (opcional)' : ''}`);

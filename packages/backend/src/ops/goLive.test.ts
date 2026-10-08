@@ -1,4 +1,4 @@
-import { DEFAULT_EMAIL_FROM, envToPublish, mask, missingRecords, relativeName, wantedRecords } from './goLive';
+import { DEFAULT_EMAIL_FROM, envToPublish, mask, missingRecords, normalizeKeys, relativeName, wantedRecords } from './goLive';
 
 describe('go-live helpers', () => {
   it('publishes only the keys that have a value, with a default sender', () => {
@@ -40,6 +40,13 @@ describe('go-live helpers', () => {
     ]);
     expect(create.map(r => r.name)).toEqual(['_dmarc']);
     expect(conflicts.map(r => r.name)).toEqual(['resend._domainkey']);
+  });
+
+  it('accepts the key names used in the .env', () => {
+    const keys = normalizeKeys({ RESEND: 're_1', 'STRIPE-CHAVE-SECRETA': ' sk_test_2 ', 'STRIPE-CHAVE-PUBLICAVEL': 'pk_test_3' });
+    expect(keys).toMatchObject({ RESEND_API_KEY: 're_1', STRIPE_SECRET_KEY: 'sk_test_2' });
+    expect(envToPublish(keys).map(e => e.name)).toEqual(['RESEND_API_KEY', 'EMAIL_FROM', 'STRIPE_SECRET_KEY']);
+    expect(normalizeKeys({ STRIPE_SECRET_KEY: 'sk_live_a', 'STRIPE-CHAVE-SECRETA': 'sk_test_b' }).STRIPE_SECRET_KEY).toBe('sk_live_a');
   });
 
   it('masks secrets', () => {

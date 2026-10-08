@@ -54,6 +54,11 @@ export class BillingService {
     window.location.href = res.data.url;
   }
 
+  /** Confirms a finished Checkout right away (the webhook may still be on its way). */
+  async sync(sessionId: string): Promise<void> {
+    await firstValueFrom(this.http.post('/api/billing/sync', { sessionId }));
+  }
+
   /** Opens the Stripe Customer Portal (cancel, card, invoices). */
   async portal(): Promise<void> {
     const res = await firstValueFrom(this.http.post<{ data: { url: string } }>('/api/billing/portal', {}));

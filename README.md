@@ -54,6 +54,25 @@ Falta só o que depende da sua identidade. Depois disso, um comando faz o resto.
 
 O `npm run stripe:setup` continua disponível para mexer só no Stripe (por exemplo, depois de mudar um preço no script).
 
+O `go-live` também lê as chaves direto do `.env` (aceita os nomes `RESEND` e `STRIPE-CHAVE-SECRETA`). Hoje a produção usa a chave **de teste** da conta `acct_1UL0rGIfSkUIdOs2`: a jornada funciona com o cartão `4242 4242 4242 4242`, mas não entra dinheiro. Para cobrar de verdade:
+
+1. No painel do Stripe, ative a conta como **pessoa física** (CPF, endereço, conta bancária, site e descritor `SUBTITLE TRANSLATOR`).
+2. Troque a chave no `.env` pela `sk_live_…` e rode `npm run go-live -- --confirm acct_1UL0rGIfSkUIdOs2`. Ele recria produto, preços, webhook e cupom no modo de produção e troca as variáveis na Vercel.
+
+### Como o Stripe está integrado
+
+Segue o plano recomendado pelo `stripe_implementation_planner` para SaaS freemium:
+
+- **Checkout hospedado:** assinatura com `billing_mode: flexible` e passes avulsos com Pix.
+- **Preço fixo por `lookup_key`**, sem cartão no plano grátis.
+- **Portal do Cliente** para cancelar no fim do período, trocar o cartão e ver as faturas.
+- **Webhook idempotente:**
+  - `checkout.session.*` para os passes, inclusive o Pix assíncrono;
+  - `customer.subscription.*` e `invoice.paid` para as renovações;
+  - `invoice.payment_failed` só para registro. A recuperação fica com o Smart Retries e os e-mails do Stripe.
+- **Volta do Checkout:** a `success_url` leva o `session_id` e a página `/conta` chama `POST /api/billing/sync`, que ativa o plano na hora sem esperar o webhook.
+- **Imposto:** o produto tem a categoria fiscal de SaaS (`txcd_10103000`), para o monitoramento gratuito de limites do Stripe Tax.
+
 ## Como funciona
 
 1. **Envio**: arraste o `.srt` (até 4 MB; um filme tem ~100 KB). A tradução começa na hora, e o link da página (`/translation/:id`) sobrevive a um F5.

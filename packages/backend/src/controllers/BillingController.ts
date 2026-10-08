@@ -85,13 +85,14 @@ export class BillingController {
       locale: 'pt-BR',
       allow_promotion_codes: true,
       metadata: { userId: user.id, plan: offer },
-      success_url: `${base}/conta?checkout=ok`,
+      // The session id lets /conta confirm the purchase at once (POST /sync) instead of waiting for the webhook.
+      success_url: `${base}/conta?checkout=ok&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}/precos`,
       custom_text: {
         submit: { message: `Ao continuar, você concorda com os Termos de Uso (${base}/termos) e a Política de Privacidade (${base}/privacidade).` },
       },
       ...(mode === 'subscription'
-        ? { subscription_data: { metadata: { userId: user.id } } }
+        ? { subscription_data: { metadata: { userId: user.id }, billing_mode: { type: 'flexible' as const } } }
         : {
             // Stripe e-mails the receipt for one-off passes without any Dashboard setting.
             payment_intent_data: { metadata: { userId: user.id, plan: offer }, receipt_email: user.email },
@@ -116,6 +117,34 @@ export class BillingController {
       ...(process.env.STRIPE_PORTAL_CONFIGURATION ? { configuration: process.env.STRIPE_PORTAL_CONFIGURATION } : {}),
     });
     res.json({ data: { url: session.url } });
+  });
+
+  /**
+   * Called by /conta right after Checkout returns: reads the session from Stripe and applies the
+   * purchase now, so the customer sees Pro without waiting for the webhook. Both paths are idempotent.
+   */
+  sync = safe(async (req, res) => {
+    const sessionId = req.body?.sessionId;
+    if (!this.stripe) {
+      res.status(503).json({ error: NOT_CONFIGURED });
+      return;
+    }
+    if (typeof sessionId !== 'string' || !/^cs_[A-Za-z0-9_]+$/.test(sessionId)) {
+      res.status(400).json({ error: 'Sessão de pagamento inválida.' });
+      return;
+    }
+    const user = currentUser(res);
+    const session = await this.stripe.checkout.sessions.retrieve(sessionId, { expand: ['subscription'] }).catch(() => null);
+    if (!session || session.client_reference_id !== user.id) {
+      res.status(404).json({ error: 'Pagamento não encontrado.' });
+      return;
+    }
+    if (session.mode === 'payment' && session.payment_status === 'paid') await this.grantPass(session);
+    if (session.mode === 'subscription' && session.subscription && typeof session.subscription !== 'string') {
+      await this.applySubscription(session.subscription, Math.floor(Date.now() / 1000));
+    }
+    // Pix may still be pending here: the webhook finishes it when the bank confirms.
+    res.json({ data: { status: session.payment_status } });
   });
 
   /** Mounted with express.raw(): the signature is computed over the exact bytes Stripe sent. */
@@ -163,30 +192,47 @@ export class BillingController {
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted': {
         const sub = event.data.object;
-        const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer.id;
-        const user =
-          (await this.users.findByCustomer(customerId)) ??
-          (sub.metadata?.userId ? await this.users.get(sub.metadata.userId) : null);
-        if (!user) {
-          // E.g. the account was deleted; nothing to update, and retrying would not help.
-          console.warn(`Assinatura ${sub.id} de um cliente sem conta (${customerId}).`);
-          return;
-        }
-        await this.users.applySubscription(user.id, {
-          id: sub.id,
-          status: event.type === 'customer.subscription.deleted' ? 'canceled' : sub.status,
-          periodEnd: sub.items?.data?.[0]?.current_period_end ?? null,
-          cancelAtPeriodEnd: !!sub.cancel_at_period_end,
-          eventAt: event.created,
-        });
+        await this.applySubscription(
+          event.type === 'customer.subscription.deleted' ? { ...sub, status: 'canceled' } : sub,
+          event.created
+        );
+        return;
+      }
+      case 'invoice.paid': {
+        // Each renewal: refresh the subscription (new period end) from Stripe.
+        const ref = event.data.object.parent?.subscription_details?.subscription;
+        if (!ref || !this.stripe) return;
+        const sub = typeof ref === 'string' ? await this.stripe.subscriptions.retrieve(ref) : ref;
+        await this.applySubscription(sub, event.created);
         return;
       }
       case 'invoice.payment_failed':
+        // Stripe's Smart Retries and failed-payment e-mails handle recovery; status comes via subscription.updated.
         console.warn(`Cobrança recusada: fatura ${event.data.object.id}`);
         return;
     }
   }
 
+  private async applySubscription(sub: Stripe.Subscription, eventAt: number): Promise<void> {
+    const customerId = typeof sub.customer === 'string' ? sub.customer : sub.customer.id;
+    const user =
+      (await this.users.findByCustomer(customerId)) ??
+      (sub.metadata?.userId ? await this.users.get(sub.metadata.userId) : null);
+    if (!user) {
+      // E.g. the account was deleted; nothing to update, and retrying would not help.
+      console.warn(`Assinatura ${sub.id} de um cliente sem conta (${customerId}).`);
+      return;
+    }
+    await this.users.applySubscription(user.id, {
+      id: sub.id,
+      status: sub.status,
+      periodEnd: sub.items?.data?.[0]?.current_period_end ?? null,
+      cancelAtPeriodEnd: !!sub.cancel_at_period_end,
+      eventAt,
+    });
+  }
+
+  /** Adds the pass's days once per Checkout Session, whether the webhook or /sync gets there first. */
   private async grantPass(s: Stripe.Checkout.Session): Promise<void> {
     const offer = s.metadata?.plan;
     const userId = s.client_reference_id ?? s.metadata?.userId;
@@ -196,6 +242,13 @@ export class BillingController {
       console.warn(`Pagamento da sessão ${s.id} para um usuário que não existe mais (${userId}).`);
       return;
     }
-    await this.users.extendPro(userId, pass.days);
+    const key = `grant:${s.id}`;
+    if (!(await this.users.recordEvent(key, 'pass_granted'))) return;
+    try {
+      await this.users.extendPro(userId, pass.days);
+    } catch (e) {
+      await this.users.forgetEvent(key).catch(() => {});
+      throw e;
+    }
   }
 }

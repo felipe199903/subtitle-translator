@@ -18,6 +18,8 @@
 import Stripe from 'stripe';
 
 const PRODUCT_ID = 'subtitle_translator_pro';
+/** Stripe Tax category "Software as a service (SaaS) - personal use", for free threshold monitoring. */
+const SAAS_TAX_CODE = 'txcd_10103000';
 const PRICES = [
   { lookup_key: 'pro_monthly', unit_amount: 1990, nickname: 'Pro Mensal', recurring: { interval: 'month' as const } },
   { lookup_key: 'pro_30d', unit_amount: 1990, nickname: 'Pro 30 dias (avulso)' },
@@ -30,6 +32,7 @@ const EVENTS: Stripe.WebhookEndpointCreateParams.EnabledEvent[] = [
   'customer.subscription.created',
   'customer.subscription.updated',
   'customer.subscription.deleted',
+  'invoice.paid',
   'invoice.payment_failed',
 ];
 
@@ -81,10 +84,16 @@ export async function setupStripe(stripe: Stripe, opts: { site: string; recreate
       description: 'Tradução de legendas .srt para português (BR) sem limites mensais apertados e com arquivos maiores.',
       url: site,
       statement_descriptor: 'SUBTITLE TRANSLATOR',
+      tax_code: SAAS_TAX_CODE,
     });
     console.log(`✓ Produto criado: ${product.id}`);
   } else {
     console.log(`• Produto já existe: ${product.id}`);
+    const current = typeof product.tax_code === 'string' ? product.tax_code : product.tax_code?.id;
+    if (current !== SAAS_TAX_CODE) {
+      await stripe.products.update(PRODUCT_ID, { tax_code: SAAS_TAX_CODE });
+      console.log('✓ Categoria fiscal do produto: SaaS (uso pessoal)');
+    }
   }
 
   // Prices

@@ -18,6 +18,25 @@ export const PUBLISHED_KEYS = [
 ] as const;
 export type PublishedKey = (typeof PUBLISHED_KEYS)[number];
 
+/** Other names people give the same keys in their .env (the first one with a value wins). */
+const ALIASES: Record<string, PublishedKey> = {
+  RESEND: 'RESEND_API_KEY',
+  'STRIPE-CHAVE-SECRETA': 'STRIPE_SECRET_KEY',
+  STRIPE_CHAVE_SECRETA: 'STRIPE_SECRET_KEY',
+  STRIPE_SECRET: 'STRIPE_SECRET_KEY',
+  GEMINI: 'GEMINI_API_KEY',
+};
+
+/** Maps aliases onto the names the app reads; the official name always wins. */
+export function normalizeKeys(input: Record<string, string | undefined>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(input)) if (v?.trim()) out[k] = v.trim();
+  for (const [alias, name] of Object.entries(ALIASES)) {
+    if (!out[name] && out[alias]) out[name] = out[alias];
+  }
+  return out;
+}
+
 /** The env vars to write: only keys with a value, plus EMAIL_FROM's default once e-mail is on. */
 export function envToPublish(input: Record<string, string | undefined>): Array<{ name: PublishedKey; value: string }> {
   const values: Partial<Record<PublishedKey, string>> = {};
