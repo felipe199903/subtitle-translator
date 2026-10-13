@@ -73,10 +73,19 @@ export interface ProbeStream {
   codec_type: string;
   codec_name?: string;
   tags?: { language?: string; title?: string };
-  disposition?: { forced?: number; hearing_impaired?: number };
+  disposition?: { forced?: number; hearing_impaired?: number; default?: number; comment?: number };
 }
 
 const TEXT_SUB_CODECS = new Set(['subrip', 'srt', 'ass', 'ssa', 'mov_text', 'webvtt', 'text']);
+/** Blu-ray image subtitles, which pgsrip can read with OCR (DVD VobSub cannot). */
+const PGS_CODECS = new Set(['hdmv_pgs_subtitle', 'pgssub']);
+
+/** Whisper language code for an ffprobe audio language tag (undefined = let Whisper detect it). */
+const WHISPER_LANGS: Record<string, string> = {
+  eng: 'en', en: 'en', jpn: 'ja', ja: 'ja', spa: 'es', es: 'es', por: 'pt', pt: 'pt', fre: 'fr', fra: 'fr', fr: 'fr',
+  ger: 'de', deu: 'de', de: 'de', ita: 'it', it: 'it', kor: 'ko', ko: 'ko', chi: 'zh', zho: 'zh', zh: 'zh', rus: 'ru', ru: 'ru',
+};
+export const whisperLanguage = (tag?: string) => WHISPER_LANGS[(tag || '').toLowerCase()];
 
 export interface EmbeddedInfo {
   ptSubtitle: boolean;
@@ -85,8 +94,12 @@ export interface EmbeddedInfo {
   enTextStream: number | null;
   /** Every English text subtitle, best first (signs/songs tracks last): alternatives if the best is nearly empty. */
   enTextStreams?: number[];
-  /** English subtitles exist but are all images (PGS/VobSub), which cannot be translated. */
+  /** English subtitles exist but are all images (PGS/VobSub), which cannot be translated as text. */
   enImageOnly: boolean;
+  /** Best English PGS track, readable with OCR when there is no text one. */
+  enImageStream?: number | null;
+  /** Audio track to transcribe when there is no subtitle at all (English first, then the default one). */
+  audioStream?: number | null;
 }
 
 export function embeddedInfo(streams: ProbeStream[]): EmbeddedInfo {
@@ -107,6 +120,17 @@ export function embeddedInfo(streams: ProbeStream[]): EmbeddedInfo {
         Number(a.codec_name !== 'subrip') - Number(b.codec_name !== 'subrip')
     );
   const enText = allEnText.filter(s => !isSigns(s));
+  const enImage = subs
+    .filter(s => EN_CODES.has(lang(s)) && PGS_CODECS.has((s.codec_name || '').toLowerCase()) && !isSigns(s))
+    .sort((a, b) => Number(isHi(a)) - Number(isHi(b)));
+  // Commentary tracks are never the dialogue; English is what Emby plays first (and what Whisper knows best).
+  const audio = streams
+    .filter(s => s.codec_type === 'audio' && !s.disposition?.comment && !/comment/i.test(s.tags?.title || ''))
+    .sort(
+      (a, b) =>
+        Number(!EN_CODES.has(lang(a))) - Number(!EN_CODES.has(lang(b))) ||
+        Number(!a.disposition?.default) - Number(!b.disposition?.default)
+    );
 
   return {
     ptSubtitle: subs.some(s => PT_CODES.has(lang(s))),
@@ -114,6 +138,8 @@ export function embeddedInfo(streams: ProbeStream[]): EmbeddedInfo {
     enTextStream: enText[0]?.index ?? null,
     enTextStreams: allEnText.map(s => s.index),
     enImageOnly: !enText.length && subs.some(s => EN_CODES.has(lang(s))),
+    enImageStream: enText.length ? null : enImage[0]?.index ?? null,
+    audioStream: audio[0]?.index ?? null,
   };
 }
 
@@ -126,6 +152,7 @@ export type FileStatus =
   | 'superseded' // chegou legenda humana; a automática foi removida
   | 'no_english' // não há legenda em inglês para traduzir
   | 'image_only' // inglês só em imagem (PGS/VobSub)
+  | 'no_speech' // transcrição do áudio não achou falas (show musical, sem diálogo)
   | 'failed'; // falhou 3 vezes
 
 export const STATUS_LABELS: Record<FileStatus, string> = {
@@ -137,15 +164,27 @@ export const STATUS_LABELS: Record<FileStatus, string> = {
   superseded: 'Substituída por legenda humana',
   no_english: 'Sem legenda em inglês',
   image_only: 'Inglês só em imagem (PGS)',
+  no_speech: 'Sem fala no áudio',
   failed: 'Falhou',
 };
 
 export interface Decision {
   status: FileStatus;
-  /** "external:<file>" or "embedded:<stream index>" when there is something to translate. */
+  /**
+   * "external:<file>", "embedded:<stream index>", "ocr:<PGS stream index>" or "audio:<audio stream index>"
+   * (transcription) when there is something to translate.
+   */
   source?: string;
   /** Our file must be deleted because a human PT-BR subtitle arrived. */
   deleteMt?: boolean;
+}
+
+/** What can produce English (or original-language) text besides a text subtitle. */
+export interface Extras {
+  /** pgsrip + tesseract are installed: PGS subtitles can be read with OCR. */
+  ocr: boolean;
+  /** A Whisper server is configured: the audio can be transcribed. */
+  transcribe: boolean;
 }
 
 /**
@@ -156,7 +195,8 @@ export function decide(
   side: Sidecars,
   embedded: EmbeddedInfo | null,
   ageDays: number,
-  waitDays: number
+  waitDays: number,
+  extras: Extras = { ocr: false, transcribe: false }
 ): Decision {
   const humanPt = side.ptHuman.length > 0 || !!embedded?.ptSubtitle;
   if (humanPt) return { status: side.mt ? 'superseded' : 'has_ptbr', deleteMt: !!side.mt };
@@ -167,7 +207,11 @@ export function decide(
     ? `external:${side.enSrt[0]}`
     : embedded?.enTextStream != null
       ? `embedded:${embedded.enTextStream}`
-      : undefined;
+      : extras.ocr && embedded?.enImageStream != null
+        ? `ocr:${embedded.enImageStream}`
+        : extras.transcribe && embedded?.audioStream != null
+          ? `audio:${embedded.audioStream}`
+          : undefined;
   if (!source) return { status: embedded?.enImageOnly ? 'image_only' : 'no_english' };
   return { status: ageDays < waitDays ? 'waiting' : 'pending', source };
 }

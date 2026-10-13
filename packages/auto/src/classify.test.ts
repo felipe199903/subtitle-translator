@@ -73,6 +73,21 @@ describe('embeddedInfo', () => {
     expect(embeddedInfo([{ index: 1, codec_type: 'audio', tags: { language: 'por' } }]).ptAudio).toBe(true);
     expect(embeddedInfo([sub(2, 'por', 'subrip', { disposition: { forced: 1 } })]).ptSubtitle).toBe(false);
   });
+
+  it('offers a PGS track for OCR only when there is no English text track', () => {
+    expect(embeddedInfo([sub(2, 'eng', 'hdmv_pgs_subtitle', { disposition: { hearing_impaired: 1 } }), sub(3, 'eng', 'hdmv_pgs_subtitle')]).enImageStream).toBe(3);
+    expect(embeddedInfo([sub(2, 'eng', 'hdmv_pgs_subtitle'), sub(3, 'eng')]).enImageStream).toBeNull();
+    expect(embeddedInfo([sub(2, 'eng', 'dvd_subtitle')]).enImageStream).toBeNull();
+  });
+
+  it('chooses the audio to transcribe: English, then the default track, never commentary', () => {
+    const audio = (index: number, language: string, extra: Partial<ProbeStream> = {}): ProbeStream => ({ index, codec_type: 'audio', tags: { language }, ...extra });
+    expect(embeddedInfo([audio(1, 'jpn'), audio(2, 'eng')]).audioStream).toBe(2);
+    expect(embeddedInfo([audio(1, 'eng', { disposition: { comment: 1 } }), audio(2, 'jpn')]).audioStream).toBe(2);
+    expect(embeddedInfo([audio(1, 'eng', { tags: { language: 'eng', title: 'Director Commentary' } }), audio(2, 'eng')]).audioStream).toBe(2);
+    expect(embeddedInfo([audio(1, 'spa'), audio(2, 'jpn', { disposition: { default: 1 } })]).audioStream).toBe(2);
+    expect(embeddedInfo([audio(1, 'und')]).audioStream).toBe(1);
+  });
 });
 
 describe('decide', () => {
@@ -96,6 +111,17 @@ describe('decide', () => {
     expect(decide(none, noEmb, 5, 3).status).toBe('no_english');
     expect(decide(none, { ...noEmb, enImageOnly: true }, 5, 3).status).toBe('image_only');
     expect(decide({ ...none, mt: 'y' }, null, 5, 3).status).toBe('translated');
+  });
+
+  it('falls back to OCR, then to transcribing the audio, when enabled', () => {
+    const both = { ocr: true, transcribe: true };
+    const emb = { ...noEmb, enImageOnly: true, enImageStream: 4, audioStream: 1 };
+    expect(decide(none, emb, 5, 3, both)).toEqual({ status: 'pending', source: 'ocr:4' });
+    expect(decide(none, emb, 5, 3, { ocr: false, transcribe: true })).toEqual({ status: 'pending', source: 'audio:1' });
+    expect(decide(none, { ...noEmb, audioStream: 1 }, 1, 3, both)).toEqual({ status: 'waiting', source: 'audio:1' });
+    expect(decide(none, emb, 5, 3, { ocr: false, transcribe: false }).status).toBe('image_only');
+    expect(decide(none, { ...noEmb, enTextStream: 3, audioStream: 1 }, 5, 3, both).source).toBe('embedded:3');
+    expect(decide(none, null, 5, 3, both).status).toBe('no_english'); // probe failed: nothing known
   });
 
   it('only probes the video when the files next to it cannot decide', () => {

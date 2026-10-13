@@ -44,7 +44,7 @@ export async function listVideos(roots: string[], minBytes: number): Promise<Vid
 export async function probeStreams(file: string): Promise<ProbeStream[]> {
   const { stdout } = await run(
     'ffprobe',
-    ['-v', 'error', '-show_entries', 'stream=index,codec_type,codec_name:stream_tags=language,title:stream_disposition=forced,hearing_impaired', '-of', 'json', file],
+    ['-v', 'error', '-show_entries', 'stream=index,codec_type,codec_name:stream_tags=language,title:stream_disposition=forced,hearing_impaired,default,comment', '-of', 'json', file],
     { timeout: 60_000, maxBuffer: 64 * 1024 * 1024 }
   );
   return JSON.parse(stdout).streams ?? [];

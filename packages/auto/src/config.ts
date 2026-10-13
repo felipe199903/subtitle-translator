@@ -52,6 +52,17 @@ export const config = {
   maxCues: num('MAX_CUES', 3000),
   /** Ignore videos smaller than this (samples, extras). */
   minVideoMb: num('MIN_VIDEO_MB', 50),
+  /**
+   * Whisper server (openai-whisper-asr-webservice) that transcribes the audio of videos with no subtitle at all;
+   * the transcription is then translated to PT-BR. Empty = such videos stay "no_english".
+   */
+  whisperUrl: (process.env.WHISPER_URL || '').replace(/\/+$/, ''),
+  /** Longest wait for one transcription (a long film on a modest GPU takes a while). */
+  whisperTimeoutMinutes: num('WHISPER_TIMEOUT_MINUTES', 90),
+  /** Read English PGS (Blu-ray image) subtitles with OCR (pgsrip + tesseract, installed in Dockerfile.auto). */
+  ocr: process.env.OCR !== '0' && process.env.OCR !== 'false',
+  /** Folder with the subtitle sync CSVs of the media server (sincronia.csv, correcao.csv), for the "Sincronia" tab. */
+  syncDir: process.env.SYNC_DIR || '/sync',
   port: num('PORT', 8787),
   /** Optional file to append the log to (besides stdout). */
   logFile: process.env.LOG_FILE || '',

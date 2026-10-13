@@ -8,14 +8,17 @@ import { GeminiProvider } from '../../backend/src/translation/GeminiProvider';
 import {
   Decision,
   EmbeddedInfo,
+  FileStatus,
   ProbeStream,
   decide,
   embeddedInfo,
   mtFileName,
+  whisperLanguage,
   needsProbe,
   sidecars,
 } from './classify';
 import { config } from './config';
+import { ocrSubtitle, transcribeAudio } from './extract';
 import { log } from './log';
 import { extractSubtitle, listVideos, probeStreams } from './media';
 import { FileRow, StateRepository } from './state';
@@ -23,6 +26,17 @@ import { FileRow, StateRepository } from './state';
 const DAY_MS = 86_400_000;
 /** Fewer dialogue cues than this in an embedded track means it is probably signs/songs only. */
 const MIN_DIALOGUE_CUES = 30;
+/** Fewer lines than this in a transcription: no real dialogue (concert, music, silent short). */
+const MIN_SPEECH_CUES = 20;
+/** Statuses that, once found for a file, stay until the file changes (instead of going back to the queue). */
+const STICKY: FileStatus[] = ['failed', 'no_speech', 'audio_pt'];
+
+/** Text to translate, the language it is in and where it came from (for the "Fonte" column). */
+export interface SourceText {
+  cues: Cue[];
+  from: string;
+  note: string;
+}
 
 /** How many texts were sent to a provider and how many came back empty (per file). */
 export class ProviderStats {
@@ -93,7 +107,8 @@ export class AutoTranslator {
       }
     }
     const ageDays = (Date.now() - video.mtimeMs) / DAY_MS;
-    return { decision: decide(side, embedded, ageDays, config.waitDays), probe: probe ?? (previous?.probe as any) ?? null, error };
+    const extras = { ocr: config.ocr, transcribe: !!config.whisperUrl };
+    return { decision: decide(side, embedded, ageDays, config.waitDays, extras), probe: probe ?? (previous?.probe as any) ?? null, error };
   }
 
   /** Full scan: updates the map, removes our subtitles where a human PT-BR arrived. */
@@ -135,10 +150,11 @@ export class AutoTranslator {
   ): FileRow {
     let status = d.status;
     let detail = error ?? null;
-    // A file that already failed too often stays "failed" until it changes on disk.
+    // A file that already failed too often (or has no speech, or turned out to be spoken in Portuguese)
+    // keeps that status until it changes on disk.
     const sameFile = prev && prev.size === v.size && prev.mtimeMs === v.mtimeMs;
-    if (status === 'pending' && prev?.status === 'failed' && sameFile) {
-      status = 'failed';
+    if (status === 'pending' && prev && STICKY.includes(prev.status) && sameFile) {
+      status = prev.status;
       detail = prev.detail;
     } else if (status === 'pending' && prev?.status === 'pending' && prev.detail) {
       detail = prev.detail;
@@ -207,7 +223,19 @@ export class AutoTranslator {
     const attempt = row.attempts + 1;
     try {
       const [kind, ref] = splitSource(decision.source);
-      const cues = await this.loadCues(row.video, kind, ref, probe);
+      const { cues, from, note } = await this.loadSource(row.video, kind, ref, probe);
+      if (kind === 'audio' && from === 'pt') {
+        await this.state.upsertMany([{ ...this.nextRow(video, row, { status: 'audio_pt' }, probe), detail: 'transcrição: áudio em português' }]);
+        log('Áudio em português (transcrição), nada a traduzir:', row.video);
+        return 'skipped';
+      }
+      if (kind === 'audio' && cues.length < MIN_SPEECH_CUES) {
+        await this.state.upsertMany([
+          { ...this.nextRow(video, row, { status: 'no_speech' }, probe), detail: `transcrição: ${cues.length} falas (${from || '?'})` },
+        ]);
+        log(`Sem fala no áudio (${cues.length} falas):`, row.video);
+        return 'skipped';
+      }
       if (!cues.length) {
         await this.state.upsertMany([{ ...this.nextRow(video, row, { status: 'no_english' }, probe), detail: 'legenda em inglês vazia' }]);
         return 'skipped';
@@ -220,7 +248,7 @@ export class AutoTranslator {
       this.primaryStats.reset();
       const requestsBefore = this.geminiRequests();
       const results = await this.pipeline.translate(cues, {
-        from: 'en',
+        from,
         to: 'pt-BR',
         concurrency: 1,
         groupChars: this.engine.groupChars,
@@ -245,7 +273,7 @@ export class AutoTranslator {
           cues: cues.length,
           untranslated,
           translatedAt: new Date().toISOString(),
-          detail: `fonte: ${kind === 'external' ? path.basename(ref) : `faixa embutida #${ref}`} · ${this.engineNote(fallbackCues)}`,
+          detail: `fonte: ${note} · ${this.engineNote(fallbackCues)}`,
         },
       ]);
       await this.state.setMeta('cooldown_streak', '0');
@@ -257,6 +285,12 @@ export class AutoTranslator {
       );
       return 'translated';
     } catch (e) {
+      if (whisperDown(e)) {
+        // The Whisper server is off or restarting: not the file's fault, try again next cycle.
+        await this.state.upsertMany([{ ...row, detail: `aguardando o Whisper: ${(e as Error).message}`.slice(0, 500) }]);
+        log('Whisper indisponível, transcrições adiadas:', (e as Error).message);
+        return 'stop';
+      }
       return this.fail(row, video, probe, attempt, (e as Error).message, false);
     }
   }
@@ -277,6 +311,39 @@ export class AutoTranslator {
     if (!g?.unavailable) return null;
     const times = g.usage().map(u => (u.exhaustedUntil ? Date.parse(u.exhaustedUntil) : 0)).filter(Boolean);
     return times.length ? new Date(Math.min(...times)) : null;
+  }
+
+  /**
+   * Text of any source kind: an English text subtitle, OCR of a PGS track or a transcription of the audio.
+   * An OCR that reads almost nothing falls back to the transcription.
+   */
+  async loadSource(videoPath: string, kind: string, ref: string, probe: ProbeStream[] | null): Promise<SourceText> {
+    if (kind === 'external' || kind === 'embedded') {
+      const note = kind === 'external' ? path.basename(ref) : `faixa embutida #${ref}`;
+      return { cues: await this.loadCues(videoPath, kind, ref, probe), from: 'en', note };
+    }
+    if (kind === 'ocr') {
+      const started = Date.now();
+      const cues = await ocrSubtitle(videoPath, Number(ref));
+      log(`OCR da faixa #${ref}: ${cues.length} falas em ${Math.round((Date.now() - started) / 1000)}s:`, videoPath);
+      const audio = probe ? embeddedInfo(probe).audioStream : null;
+      if (cues.length >= MIN_DIALOGUE_CUES || !config.whisperUrl || audio == null) {
+        return { cues, from: 'en', note: `OCR da legenda em imagem #${ref}` };
+      }
+      ref = String(audio);
+    }
+    const stream = probe?.find(s => s.index === Number(ref));
+    const started = Date.now();
+    const t = await transcribeAudio(
+      videoPath,
+      Number(ref),
+      config.whisperUrl,
+      config.whisperTimeoutMinutes * 60_000,
+      whisperLanguage(stream?.tags?.language)
+    );
+    const secs = Math.round((Date.now() - started) / 1000);
+    log(`Transcrição do áudio #${ref} (${t.language}): ${t.cues.length} falas em ${secs}s:`, videoPath);
+    return { cues: t.cues, from: t.language || 'auto', note: `transcrição do áudio #${ref} (${t.language || '?'})` };
   }
 
   /** English cues from an external .srt or an embedded track (ASS read directly, dialogue only). */
@@ -346,6 +413,12 @@ export class AutoTranslator {
     log(`Falha (tentativa ${attempt}/${config.maxAttempts}):`, row.video, '-', reason);
     return 'skipped';
   }
+}
+
+function whisperDown(e: unknown): boolean {
+  const err = e as { code?: string; response?: { status?: number }; config?: { url?: string } };
+  if (!config.whisperUrl || !err.config?.url?.startsWith(config.whisperUrl)) return false;
+  return ['ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ENOTFOUND', 'ETIMEDOUT'].includes(err.code ?? '') || (err.response?.status ?? 0) >= 502;
 }
 
 function splitSource(source: string): [string, string] {

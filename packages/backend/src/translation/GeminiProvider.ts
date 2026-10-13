@@ -21,6 +21,13 @@ const LANG_NAMES: Record<string, string> = {
   pt: 'português do Brasil',
   en: 'inglês',
   es: 'espanhol',
+  ja: 'japonês',
+  fr: 'francês',
+  de: 'alemão',
+  it: 'italiano',
+  ko: 'coreano',
+  zh: 'chinês',
+  ru: 'russo',
 };
 
 const instruction = (from: string, to: string) =>

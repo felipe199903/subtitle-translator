@@ -22,7 +22,10 @@ A cada varredura (padrão: 6 h), para cada vídeo nas pastas de mídia:
 | Há inglês e já passou o prazo | `pending` (fila) |
 | Tradução gravada | `translated` |
 | Chegou uma legenda PT-BR humana depois da tradução | `superseded` (o arquivo automático é **apagado**) |
-| Sem inglês / inglês só em imagem (PGS) | `no_english` / `image_only` |
+| Sem legenda em inglês em texto, mas com PGS (Blu-ray) em inglês e `OCR` ligado | `pending` com fonte `ocr:<faixa>`: lê a imagem com OCR (pgsrip + tesseract) e traduz |
+| Sem nenhuma legenda e `WHISPER_URL` configurado | `pending` com fonte `audio:<faixa>`: transcreve o áudio (inglês primeiro, nunca comentário) e traduz do idioma ouvido |
+| A transcrição ouviu português / quase nenhuma fala (show musical) | `audio_pt` / `no_speech` (ficam assim até o arquivo mudar) |
+| Sem inglês / inglês só em imagem, sem OCR nem Whisper | `no_english` / `image_only` |
 | Falhou `MAX_ATTEMPTS` vezes | `failed` |
 
 A cada ciclo (padrão: 30 min) traduz até `FILES_PER_CYCLE` vídeos da fila, dos mais novos para os mais antigos, respeitando `DAILY_LIMIT` por dia e esperando `REQUEST_DELAY_MS` antes de cada pedido ao Google.
@@ -63,6 +66,10 @@ A cada ciclo (padrão: 30 min) traduz até `FILES_PER_CYCLE` vídeos da fila, do
 | `MAX_PROVIDER_FAIL_RATIO` | 0.2 | Parcela de textos sem resposta do motor principal que caracteriza recusa |
 | `MAX_CUES` | 3000 | Acima disso o arquivo é pulado (legenda de efeitos, não diálogo) |
 | `MIN_VIDEO_MB` | 50 | Ignora amostras e extras |
+| `WHISPER_URL` | vazio | Servidor [openai-whisper-asr-webservice](https://github.com/ahmetoner/whisper-asr-webservice) (ex.: `http://host.docker.internal:9010`) para transcrever vídeos sem legenda; vazio = ficam `no_english` |
+| `WHISPER_TIMEOUT_MINUTES` | 90 | Espera máxima por uma transcrição |
+| `OCR` | ligado | `0` desliga o OCR das legendas PGS |
+| `SYNC_DIR` | `/sync` | Pasta com `sincronia.csv` / `correcao.csv` (medição e correção da sincronia das legendas no servidor), mostrados na aba **Sincronia** |
 | `LOG_FILE` | vazio | Também grava o log neste arquivo |
 | `PORT` | 8787 | Página de status |
 
