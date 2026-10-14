@@ -108,6 +108,17 @@ export function summary(d: SyncData) {
   return { byMeasure, byAction, toFix, inSync, total: d.measured.length };
 }
 
+export type SyncGroup = 'filmes' | 'series';
+export const GROUP_LABELS: Record<SyncGroup, string> = { filmes: 'Filmes', series: 'Séries e animes' };
+const isMovie = (p: string) => p.startsWith('/movies/') || p.startsWith('/movies-ssd/');
+
+/** Only the films or only the series/anime (the scripts measure both, in the same CSVs). */
+export function byGroup(d: SyncData, g: SyncGroup | null): SyncData {
+  if (!g) return d;
+  const keep = (r: Record<string, string>) => isMovie(r.legenda) === (g === 'filmes');
+  return { ...d, measured: d.measured.filter(keep), actions: d.actions.filter(keep) };
+}
+
 /** Rows of correcao.csv with one action (or the latest ones), newest first. */
 export function actionsOf(d: SyncData, action: string | null, limit: number) {
   const rows = action ? d.actions.filter(r => actionKey(r.acao) === action) : d.actions;

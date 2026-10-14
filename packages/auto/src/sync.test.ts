@@ -1,4 +1,4 @@
-import { actionsOf, measure, parseCsv, summary } from './sync';
+import { actionsOf, byGroup, measure, parseCsv, summary } from './sync';
 import { segmentsToCues, splitSegment } from './extract';
 
 describe('parseCsv', () => {
@@ -37,6 +37,17 @@ describe('sync summary', () => {
     expect(s).toMatchObject({ total: 4, inSync: 2, toFix: 1, byAction: { corrigida: 1, apagada: 1 } });
     expect(actionsOf(d, null, 1)).toEqual([{ legenda: 'c', acao: 'apagada' }]);
     expect(actionsOf(d, 'corrigida', 10)).toHaveLength(1);
+  });
+
+  it('splits films from series/anime by folder', () => {
+    const d = {
+      measured: [m('/movies/A/A.pt-BR.srt', '0'), m('/movies-ssd/B/B.pt-BR.srt', '0'), m('/Anime/C/C.pt-BR.srt', '9')],
+      actions: [{ legenda: '/Anime/C/C.pt-BR.srt', acao: 'corrigida' }],
+      updatedAt: {},
+    };
+    expect(byGroup(d, 'filmes').measured).toHaveLength(2);
+    expect(byGroup(d, 'series')).toMatchObject({ measured: [{ legenda: '/Anime/C/C.pt-BR.srt' }], actions: [{ acao: 'corrigida' }] });
+    expect(byGroup(d, null)).toBe(d);
   });
 });
 

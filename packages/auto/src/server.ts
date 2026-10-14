@@ -4,7 +4,7 @@ import path from 'path';
 import { FileStatus, STATUS_LABELS } from './classify';
 import { config } from './config';
 import { FileRow, StateRepository } from './state';
-import { ACTION_LABELS, MEASURE_LABELS, Measure, SYNC_FILES, actionsOf, loadSync, summary } from './sync';
+import { ACTION_LABELS, GROUP_LABELS, MEASURE_LABELS, Measure, SYNC_FILES, SyncGroup, actionsOf, byGroup, loadSync, summary } from './sync';
 import { AutoTranslator } from './worker';
 
 const esc = (s: unknown) =>
@@ -77,11 +77,20 @@ const fmtNum = (n: number) => n.toLocaleString('pt-BR');
 const secs = (v: string) => (v ? `${Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} s` : '');
 const base = (p: string) => esc(path.basename(p || ''));
 
-async function syncPage(action: string | null): Promise<string> {
-  const d = await loadSync();
-  if (!d) {
+async function syncPage(action: string | null, groupParam: string | null): Promise<string> {
+  const all = await loadSync();
+  if (!all) {
     return shell('sincronia', `<p class="muted">Nenhuma medição encontrada em <code>${esc(config.syncDir)}</code> (sincronia.csv / correcao.csv).</p>`);
   }
+  const group = groupParam && groupParam in GROUP_LABELS ? (groupParam as SyncGroup) : null;
+  const d = byGroup(all, group);
+  const link = (params: Record<string, string | null>) => {
+    const q = new URLSearchParams(Object.entries({ grupo: group, ...params }).filter(([, v]) => v) as [string, string][]).toString();
+    return `/sincronia${q ? `?${q}` : ''}`;
+  };
+  const groups = ([[null, 'Tudo'], ...Object.entries(GROUP_LABELS)] as Array<[string | null, string]>)
+    .map(([g, l]) => `<a class="pill ${group === g ? 'on' : ''}" href="${g ? `/sincronia?grupo=${g}` : '/sincronia'}">${l}</a>`)
+    .join('');
   const s = summary(d);
   const at = (f: string) => (d.updatedAt[f] ? d.updatedAt[f]!.toLocaleString('sv-SE').slice(0, 16) : '—');
   const card = (n: number, label: string, href?: string, on = false) =>
@@ -92,7 +101,7 @@ async function syncPage(action: string | null): Promise<string> {
     card(s.total, 'Legendas PT-BR medidas'),
     card(s.inSync, 'Em sincronia agora'),
     card(s.toFix, 'A corrigir'),
-    ...Object.entries(ACTION_LABELS).map(([k, l]) => card(s.byAction[k] ?? 0, l, `/sincronia?acao=${k}`, action === k)),
+    ...Object.entries(ACTION_LABELS).map(([k, l]) => card(s.byAction[k] ?? 0, l, link({ acao: k }), action === k)),
   ].join('');
   const measures = (Object.keys(MEASURE_LABELS) as Measure[]).map(k => card(s.byMeasure[k], MEASURE_LABELS[k])).join('');
   const rows = actionsOf(d, action, action ? 5000 : 30);
@@ -106,12 +115,13 @@ async function syncPage(action: string | null): Promise<string> {
     : '<p class="muted">Nada aqui.</p>';
   return shell(
     'sincronia',
-    `<p class="muted">Legendas PT-BR dos filmes medidas contra o próprio vídeo (ffsubsync no Bazarr), toda semana. Antes de corrigir ou apagar,
-uma cópia vai para <code>backup-legendas</code>; as apagadas são buscadas de novo pelo Bazarr e, sem legenda humana, a tradução automática cobre o filme.<br>
+    `<p class="muted">Legendas PT-BR de filmes, séries e animes medidas contra o próprio vídeo (ffsubsync no Bazarr), toda semana. Antes de corrigir ou apagar,
+uma cópia vai para <code>backup-legendas</code>; as apagadas são buscadas de novo pelo Bazarr e, sem legenda humana, a tradução automática cobre o vídeo.<br>
 Medição: ${at('sincronia.csv')} · correção: ${at('correcao.csv')} · ${SYNC_FILES.map(f => `<a href="/sincronia/${f}">${f}</a>`).join(' · ')}</p>
+<p class="pills">${groups}</p>
 <div class="cards">${overview}</div>
 <h2>Resultado da medição</h2><div class="cards">${measures}</div>
-<h2>${action ? `${esc(ACTION_LABELS[action] ?? action)} <small>(${rows.length})</small> · <a href="/sincronia">voltar</a>` : 'Últimas ações da correção'}</h2>${list}`
+<h2>${action ? `${esc(ACTION_LABELS[action] ?? action)} <small>(${rows.length})</small> · <a href="${link({})}">voltar</a>` : 'Últimas ações da correção'}</h2>${list}`
   );
 }
 
@@ -134,6 +144,8 @@ nav{display:flex;gap:4px;margin:12px 0 4px;border-bottom:1px solid var(--line)}
 nav a{padding:6px 12px;text-decoration:none;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
 nav a.on{color:var(--fg);border-bottom-color:var(--accent);font-weight:600}
 code{font-size:12px}
+.pills{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 0}.pill{padding:3px 10px;border:1px solid var(--line);border-radius:999px;text-decoration:none;color:var(--muted)}
+.pill.on{border-color:var(--accent);color:var(--fg)}
 @media (max-width:640px){th:nth-child(n+4),td:nth-child(n+4){display:none}}
 </style></head><body><main>
 <h1>Tradução automática de legendas (PT-BR)</h1>
@@ -199,7 +211,7 @@ export function startServer(state: StateRepository, worker: AutoTranslator) {
             })
             .end(csv(rows));
         } else if (url.pathname === '/sincronia') {
-          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(await syncPage(url.searchParams.get('acao')));
+          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(await syncPage(url.searchParams.get('acao'), url.searchParams.get('grupo')));
         } else if (url.pathname.startsWith('/sincronia/') && SYNC_FILES.includes(url.pathname.slice(11))) {
           const f = url.pathname.slice(11);
           res
