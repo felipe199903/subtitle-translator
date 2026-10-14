@@ -180,6 +180,16 @@ export function startServer(state: StateRepository, worker: AutoTranslator) {
               : null,
           };
           res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(body));
+        } else if (url.pathname === '/api/retry' && req.method === 'POST') {
+          // Puts a file that is stuck in a final status (failed, no_speech, no_english) back in the queue.
+          const video = url.searchParams.get('video') || '';
+          const row = await state.get(video);
+          if (!row) {
+            res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('vídeo não está no mapa');
+          } else {
+            await state.upsertMany([{ ...row, status: 'pending', attempts: 0, detail: 'nova tentativa pedida' }]);
+            res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({ video, status: 'pending' }));
+          }
         } else if (url.pathname === '/api/files.csv') {
           const rows = await state.list(status, 100000, 'recent');
           res

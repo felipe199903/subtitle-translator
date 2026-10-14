@@ -68,6 +68,12 @@ export class StateRepository {
     return new Map(rows.map(r => [r.video, toRow(r)]));
   }
 
+  async get(video: string): Promise<FileRow | null> {
+    await this.init();
+    const [r] = await this.db.query(`SELECT * FROM auto_files WHERE video = $1`, [video]);
+    return r ? toRow(r) : null;
+  }
+
   async upsertMany(rows: FileRow[]): Promise<void> {
     await this.init();
     for (let i = 0; i < rows.length; i += 500) {

@@ -36,6 +36,8 @@ export interface SourceText {
   cues: Cue[];
   from: string;
   note: string;
+  /** Came from transcribing the audio (no "effects track" limit; Portuguese/no-speech outcomes apply). */
+  transcribed?: boolean;
 }
 
 /** How many texts were sent to a provider and how many came back empty (per file). */
@@ -223,13 +225,13 @@ export class AutoTranslator {
     const attempt = row.attempts + 1;
     try {
       const [kind, ref] = splitSource(decision.source);
-      const { cues, from, note } = await this.loadSource(row.video, kind, ref, probe);
-      if (kind === 'audio' && from === 'pt') {
+      const { cues, from, note, transcribed } = await this.loadSource(row.video, kind, ref, probe);
+      if (transcribed && from === 'pt') {
         await this.state.upsertMany([{ ...this.nextRow(video, row, { status: 'audio_pt' }, probe), detail: 'transcrição: áudio em português' }]);
         log('Áudio em português (transcrição), nada a traduzir:', row.video);
         return 'skipped';
       }
-      if (kind === 'audio' && cues.length < MIN_SPEECH_CUES) {
+      if (transcribed && cues.length < MIN_SPEECH_CUES) {
         await this.state.upsertMany([
           { ...this.nextRow(video, row, { status: 'no_speech' }, probe), detail: `transcrição: ${cues.length} falas (${from || '?'})` },
         ]);
@@ -240,7 +242,7 @@ export class AutoTranslator {
         await this.state.upsertMany([{ ...this.nextRow(video, row, { status: 'no_english' }, probe), detail: 'legenda em inglês vazia' }]);
         return 'skipped';
       }
-      if (cues.length > config.maxCues) {
+      if (!transcribed && cues.length > config.maxCues) {
         // Effects/karaoke track, not dialogue: translating it would take hours for nothing.
         return await this.fail(row, video, probe, config.maxAttempts, `${cues.length} falas: não parece diálogo (legenda de efeitos)`, false);
       }
@@ -318,32 +320,45 @@ export class AutoTranslator {
    * An OCR that reads almost nothing falls back to the transcription.
    */
   async loadSource(videoPath: string, kind: string, ref: string, probe: ProbeStream[] | null): Promise<SourceText> {
+    const audio = probe ? embeddedInfo(probe).audioStream : null;
     if (kind === 'external' || kind === 'embedded') {
       const note = kind === 'external' ? path.basename(ref) : `faixa embutida #${ref}`;
-      return { cues: await this.loadCues(videoPath, kind, ref, probe), from: 'en', note };
+      const cues = await this.loadCues(videoPath, kind, ref, probe);
+      if (cues.length || !config.whisperUrl || audio == null) return { cues, from: 'en', note };
+      // An empty English subtitle (broken download, DVD with only VobSub besides it): transcribe the audio instead.
+      log(`Legenda em inglês vazia (${note}); transcrevendo o áudio:`, videoPath);
+      ref = String(audio);
     }
     if (kind === 'ocr') {
       const started = Date.now();
       const cues = await ocrSubtitle(videoPath, Number(ref));
       log(`OCR da faixa #${ref}: ${cues.length} falas em ${Math.round((Date.now() - started) / 1000)}s:`, videoPath);
-      const audio = probe ? embeddedInfo(probe).audioStream : null;
       if (cues.length >= MIN_DIALOGUE_CUES || !config.whisperUrl || audio == null) {
         return { cues, from: 'en', note: `OCR da legenda em imagem #${ref}` };
       }
       ref = String(audio);
     }
     const stream = probe?.find(s => s.index === Number(ref));
-    const started = Date.now();
-    const t = await transcribeAudio(
-      videoPath,
-      Number(ref),
-      config.whisperUrl,
-      config.whisperTimeoutMinutes * 60_000,
-      whisperLanguage(stream?.tags?.language)
-    );
-    const secs = Math.round((Date.now() - started) / 1000);
-    log(`Transcrição do áudio #${ref} (${t.language}): ${t.cues.length} falas em ${secs}s:`, videoPath);
-    return { cues: t.cues, from: t.language || 'auto', note: `transcrição do áudio #${ref} (${t.language || '?'})` };
+    const tagged = whisperLanguage(stream?.tags?.language);
+    const transcribe = async (language?: string) => {
+      const started = Date.now();
+      const t = await transcribeAudio(videoPath, Number(ref), config.whisperUrl, config.whisperTimeoutMinutes * 60_000, language);
+      const secs = Math.round((Date.now() - started) / 1000);
+      log(`Transcrição do áudio #${ref} (${t.language}): ${t.cues.length} falas em ${secs}s:`, videoPath);
+      return t;
+    };
+    let t = await transcribe(tagged);
+    if (!tagged && t.cues.length < MIN_SPEECH_CUES && t.language !== 'en') {
+      // Untagged track: the language guessed from the first 30 s (often music) can be wrong; try English.
+      const en = await transcribe('en');
+      if (en.cues.length > t.cues.length) t = en;
+    }
+    return {
+      cues: t.cues,
+      from: t.language || 'auto',
+      note: `transcrição do áudio #${ref} (${t.language || '?'})`,
+      transcribed: true,
+    };
   }
 
   /** English cues from an external .srt or an embedded track (ASS read directly, dialogue only). */
