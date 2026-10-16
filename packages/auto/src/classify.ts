@@ -194,8 +194,8 @@ export interface Extras {
 export function decide(
   side: Sidecars,
   embedded: EmbeddedInfo | null,
-  ageDays: number,
-  waitDays: number,
+  ageHours: number,
+  waitHours: number,
   extras: Extras = { ocr: false, transcribe: false }
 ): Decision {
   const humanPt = side.ptHuman.length > 0 || !!embedded?.ptSubtitle;
@@ -213,7 +213,7 @@ export function decide(
           ? `audio:${embedded.audioStream}`
           : undefined;
   if (!source) return { status: embedded?.enImageOnly ? 'image_only' : 'no_english' };
-  return { status: ageDays < waitDays ? 'waiting' : 'pending', source };
+  return { status: ageHours < waitHours ? 'waiting' : 'pending', source };
 }
 
 /** Sidecars alone are enough when a human PT-BR or our own file already exists. */

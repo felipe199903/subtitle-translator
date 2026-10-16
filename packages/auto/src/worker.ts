@@ -23,7 +23,7 @@ import { log } from './log';
 import { extractSubtitle, listVideos, probeStreams } from './media';
 import { FileRow, StateRepository } from './state';
 
-const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
 /** Fewer dialogue cues than this in an embedded track means it is probably signs/songs only. */
 const MIN_DIALOGUE_CUES = 30;
 /** Fewer lines than this in a transcription: no real dialogue (concert, music, silent short). */
@@ -108,9 +108,50 @@ export class AutoTranslator {
         error = `ffprobe falhou: ${(e as Error).message}`.slice(0, 300);
       }
     }
-    const ageDays = (Date.now() - video.mtimeMs) / DAY_MS;
+    // Age since the video was first seen: the file date changes whenever the media server edits the file.
+    const ageHours = (Date.now() - (previous?.firstSeenMs ?? Date.now())) / HOUR_MS;
     const extras = { ocr: config.ocr, transcribe: !!config.whisperUrl };
-    return { decision: decide(side, embedded, ageDays, config.waitDays, extras), probe: probe ?? (previous?.probe as any) ?? null, error };
+    return { decision: decide(side, embedded, ageHours, config.waitHours, extras), probe: probe ?? (previous?.probe as any) ?? null, error };
+  }
+
+  /**
+   * Videos that just arrived or changed (Sonarr/Radarr webhook, Bazarr post-processing): evaluated right away instead
+   * of on the next full scan. `priority` puts them ahead of the backlog; undefined keeps what the row had.
+   */
+  async ingest(paths: string[], priority?: boolean): Promise<Array<{ video: string; status: FileStatus | 'missing' }>> {
+    const out: Array<{ video: string; status: FileStatus | 'missing' }> = [];
+    for (const p of [...new Set(paths)]) {
+      const st = await fs.stat(p).catch(() => null);
+      if (!st?.isFile()) {
+        out.push({ video: p, status: 'missing' });
+        continue;
+      }
+      const prev = (await this.state.get(p)) ?? undefined;
+      const video = { path: p, size: st.size, mtimeMs: st.mtimeMs, siblings: await fs.readdir(path.dirname(p)) };
+      const { decision, probe, error } = await this.evaluate(video, prev);
+      if (decision.deleteMt) {
+        await fs.unlink(mtFileName(p)).catch(() => undefined);
+        log('Legenda humana PT-BR encontrada; tradução automática removida:', p);
+      }
+      const row = this.nextRow(video, prev, decision, probe, error);
+      if (priority !== undefined) row.priority = priority;
+      await this.state.upsertMany([row]);
+      out.push({ video: p, status: row.status });
+    }
+    return out;
+  }
+
+  /** Sonarr/Radarr renamed a video: our subtitle follows it (otherwise it would be translated again). */
+  async renamed(previousPath: string, newPath: string): Promise<void> {
+    const from = mtFileName(previousPath);
+    const to = mtFileName(newPath);
+    if (from === to) return;
+    const had = await fs.stat(from).catch(() => null);
+    if (had && !(await fs.stat(to).catch(() => null))) {
+      await fs.rename(from, to).catch(e => log('Falha ao renomear a tradução automática:', from, (e as Error).message));
+    }
+    const prev = await this.state.get(previousPath);
+    if (prev) await this.state.upsertMany([{ ...prev, video: newPath }]);
   }
 
   /** Full scan: updates the map, removes our subtitles where a human PT-BR arrived. */
@@ -174,6 +215,8 @@ export class AutoTranslator {
       untranslated: status === 'translated' ? prev?.untranslated ?? null : null,
       translatedAt: status === 'translated' ? prev?.translatedAt ?? null : null,
       updatedAt: new Date().toISOString(),
+      firstSeenMs: prev?.firstSeenMs ?? Date.now(),
+      priority: prev?.priority ?? false,
     };
   }
 
@@ -183,26 +226,42 @@ export class AutoTranslator {
     return d && d.getTime() > Date.now() ? d : null;
   }
 
-  async translatedToday(): Promise<number> {
+  /** Translations written today; `priority` false = only the backlog, which is what the daily limit counts. */
+  async translatedToday(priority?: boolean): Promise<number> {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
-    return this.state.translatedSince(start.toISOString());
+    return this.state.translatedSince(start.toISOString(), priority);
   }
 
-  /** Translates up to FILES_PER_CYCLE queued videos (newest first), within the daily limit. */
+  /** Translates up to FILES_PER_CYCLE videos of the backlog (newest first), within the daily limit. */
   async translateQueued(): Promise<void> {
     const cooldown = await this.cooldownUntil();
     if (cooldown) return log(`Em pausa até ${cooldown.toLocaleString('sv-SE')} (tradutor recusando pedidos).`);
 
-    let budget = Math.min(config.filesPerCycle, config.dailyLimit - (await this.translatedToday()));
+    let budget = Math.min(config.filesPerCycle, config.dailyLimit - (await this.translatedToday(false)));
     if (budget <= 0) return;
 
-    for (const row of await this.state.list('pending', 50, 'queue')) {
+    for (const row of await this.state.due(config.waitHours * HOUR_MS, 50, false)) {
       if (budget <= 0) break;
       const done = await this.translateOne(row);
-      if (done === 'translated') budget--;
+      if (done === 'translated' && !row.priority) budget--;
       if (done === 'stop') break;
     }
+  }
+
+  /**
+   * New videos from the webhook whose wait is over: translated right away, without waiting for the cycle and outside
+   * the daily limit (the engine's own pacing and refusal pause still apply). Returns how many were translated.
+   */
+  async translatePriority(): Promise<number> {
+    if (await this.cooldownUntil()) return 0;
+    let done = 0;
+    for (const row of await this.state.due(config.waitHours * HOUR_MS, 20, true)) {
+      const r = await this.translateOne(row);
+      if (r === 'translated') done++;
+      if (r === 'stop') break;
+    }
+    return done;
   }
 
   /** Returns 'translated', 'skipped' (no longer applies) or 'stop' (translator refusing). */

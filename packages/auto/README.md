@@ -18,7 +18,7 @@ A cada varredura (padrão: 6 h), para cada vídeo nas pastas de mídia:
 |---|---|
 | Já existe PT-BR (arquivo `.pt-BR.srt`, `.pb.srt`, `.por.srt`… ou faixa embutida em português) | `has_ptbr` |
 | O áudio já é em português | `audio_pt` |
-| Há inglês (`.en.srt`, ou faixa de texto embutida) e o vídeo chegou há menos de `WAIT_DAYS` dias | `waiting` (dando tempo para o Bazarr achar uma legenda humana) |
+| Há inglês (`.en.srt`, ou faixa de texto embutida) e o vídeo foi visto pela primeira vez há menos de `WAIT_HOURS` horas | `waiting` (dando tempo para o Bazarr achar uma legenda humana) |
 | Há inglês e já passou o prazo | `pending` (fila) |
 | Tradução gravada | `translated` |
 | Chegou uma legenda PT-BR humana depois da tradução | `superseded` (o arquivo automático é **apagado**) |
@@ -28,7 +28,17 @@ A cada varredura (padrão: 6 h), para cada vídeo nas pastas de mídia:
 | Sem inglês / inglês só em imagem, sem OCR nem Whisper | `no_english` / `image_only` |
 | Falhou `MAX_ATTEMPTS` vezes | `failed` |
 
-A cada ciclo (padrão: 30 min) traduz até `FILES_PER_CYCLE` vídeos da fila, dos mais novos para os mais antigos, respeitando `DAILY_LIMIT` por dia e esperando `REQUEST_DELAY_MS` antes de cada pedido ao Google.
+A cada ciclo (padrão: 30 min) traduz até `FILES_PER_CYCLE` vídeos do acervo, dos mais novos para os mais antigos, respeitando `DAILY_LIMIT` por dia e esperando `REQUEST_DELAY_MS` antes de cada pedido ao Google.
+
+A espera conta da **primeira vez que o vídeo foi visto**, não da data do arquivo: o servidor de mídia edita os vídeos (faixa padrão, dublagens removidas) e isso não é um vídeo novo.
+
+### Conteúdo novo: webhook do Sonarr/Radarr
+
+- **`POST /api/import`**: Sonarr e Radarr → *Settings → Connect → Webhook* (eventos *On Import*, *On Upgrade* e *On Rename*), URL `http://<servidor>:8787/api/import`.
+  - O vídeo importado é avaliado na hora e entra com **prioridade**. O Bazarr já busca a legenda na importação; se em `WAIT_HOURS` não chegar PT-BR, a tradução sai no minuto seguinte, à frente do acervo e **fora do `DAILY_LIMIT`**. O ritmo do motor e a pausa por recusa continuam valendo.
+  - Num *Rename*, a tradução automática é renomeada junto (senão seria traduzida de novo).
+- **`POST /api/rescan?video=<caminho>`**: reavalia um vídeo na hora. Pós-processamento do Bazarr (*Settings → Subtitles → Post-Processing*), para a legenda humana substituir a automática assim que é baixada:
+  `curl -s -X POST -G --data-urlencode "video={{episode}}" http://<servidor>:8787/api/rescan`
 
 - **Faixas ASS (anime):** são lidas direto, mantendo só os estilos de diálogo. Letreiros, karaokê (`OP_EN`, `ED-Romaji`, `Signs`…), desenhos vetoriais e linhas animadas quadro a quadro são descartados. Um episódio que o ffmpeg convertia em 28 mil "falas" fica com as ~400 de diálogo. Acima de `MAX_CUES` falas o arquivo é pulado (não é diálogo).
 - **Faixa certa em anime:** faixas de letreiros/músicas ("S&S", "Signs & Songs", "TS") não são usadas como fonte. Se a faixa escolhida render menos de 30 falas, o serviço testa as outras faixas em inglês e fica com a de mais diálogo.
@@ -39,7 +49,7 @@ A cada ciclo (padrão: 30 min) traduz até `FILES_PER_CYCLE` vídeos da fila, do
 `<vídeo>.pt-BR.Tradução-automática.srt` (UTF-8 com BOM, CRLF).
 
 - **Emby:** mostra como *Português (Brasil)* com o título **Tradução-automática**, separado das legendas baixadas.
-- **Bazarr:** só reconhece `.pt-BR.srt` puro, então **continua procurando** uma legenda humana. Quando ela chega, este serviço apaga a automática na varredura seguinte.
+- **Bazarr:** só reconhece `.pt-BR.srt` puro, então **continua procurando** uma legenda humana. Quando ela chega, este serviço apaga a automática (na hora, com o pós-processamento do Bazarr; senão, na varredura seguinte).
 
 ## Mapa (o que foi e o que não foi traduzido)
 
@@ -60,7 +70,7 @@ A cada ciclo (padrão: 30 min) traduz até `FILES_PER_CYCLE` vídeos da fila, do
 | `GEMINI_DELAY_MS` | 4500 | Pausa antes de cada pedido ao Gemini |
 | `CYCLE_MINUTES` / `FILES_PER_CYCLE` / `DAILY_LIMIT` | 20 / 2 / 120 com Gemini; 30 / 1 / 40 sem | Ritmo |
 | `SCAN_HOURS` | 6 | Intervalo entre varreduras completas |
-| `WAIT_DAYS` | 3 | Espera após o vídeo chegar |
+| `WAIT_HOURS` | 1 | Espera após o vídeo ser visto pela primeira vez (`WAIT_DAYS` antigo ainda é lido) |
 | `REQUEST_DELAY_MS` | 3000 | Pausa antes de cada pedido ao Google gratuito |
 | `COOLDOWN_HOURS` / `MAX_ATTEMPTS` | 6 / 3 | Pausa inicial quando o tradutor recusa (dobra até 24 h) / tentativas por arquivo (erros do próprio arquivo) |
 | `MAX_PROVIDER_FAIL_RATIO` | 0.2 | Parcela de textos sem resposta do motor principal que caracteriza recusa |

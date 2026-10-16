@@ -34,8 +34,11 @@ export const config = {
   dailyLimit: num('DAILY_LIMIT', gemini ? 120 : 40),
   /** Full folder scan interval (hours). */
   scanHours: num('SCAN_HOURS', 6),
-  /** Days to wait after a video arrives, giving Bazarr time to find a human subtitle. */
-  waitDays: num('WAIT_DAYS', 3),
+  /**
+   * Hours to wait after a video is first seen (scan or Sonarr/Radarr webhook), giving Bazarr time to find a human
+   * subtitle (it searches right on import). WAIT_DAYS is still read, for old configs.
+   */
+  waitHours: num('WAIT_HOURS', process.env.WAIT_DAYS ? num('WAIT_DAYS', 3) * 24 : 1),
   /** Pause before each request to the free Google endpoint (fallback when Gemini is on). */
   requestDelayMs: num('REQUEST_DELAY_MS', 3000),
   /** Pause everything after a file fails because the translator is refusing requests. */

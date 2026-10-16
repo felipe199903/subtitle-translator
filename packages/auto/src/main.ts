@@ -52,22 +52,28 @@ async function main() {
   startServer(state, worker);
   log(
     `Iniciado · motor: ${engine.gemini ? `Gemini (${config.geminiModels.join(' → ')}) + Google de reserva` : 'Google gratuito'} · pastas: ${config.mediaRoots.join(', ')} · ${config.filesPerCycle} arquivo(s)/${config.cycleMinutes} min,`,
-    `até ${config.dailyLimit}/dia · espera ${config.waitDays} dias · memória: ${config.memoryDatabaseUrl ? 'Postgres externo' : 'local'} ·`,
+    `até ${config.dailyLimit}/dia (fora os novos do webhook) · espera ${config.waitHours} h · memória: ${config.memoryDatabaseUrl ? 'Postgres externo' : 'local'} ·`,
     `status em http://0.0.0.0:${config.port}`
   );
 
+  // Every minute: new videos from the webhook whose wait is over; the backlog keeps its slower cycle.
   let nextScan = 0;
+  let nextCycle = 0;
   for (;;) {
     try {
       if (Date.now() >= nextScan) {
         await worker.scan();
         nextScan = Date.now() + config.scanHours * 3_600_000;
       }
-      await worker.translateQueued();
+      await worker.translatePriority();
+      if (Date.now() >= nextCycle) {
+        await worker.translateQueued();
+        nextCycle = Date.now() + config.cycleMinutes * 60_000;
+      }
     } catch (e) {
       log('Erro no ciclo:', e);
     }
-    await sleep(config.cycleMinutes * 60_000);
+    await sleep(60_000);
   }
 }
 

@@ -15,6 +15,10 @@ export interface FileRow {
   untranslated: number | null;
   translatedAt: string | null;
   updatedAt: string;
+  /** When the video was first seen (the wait for Bazarr counts from here, not from the file date). */
+  firstSeenMs: number;
+  /** Arrived through the Sonarr/Radarr webhook: translated as soon as the wait ends, ahead of the backlog. */
+  priority: boolean;
 }
 
 const SCHEMA = [
@@ -33,6 +37,10 @@ const SCHEMA = [
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`,
   `CREATE INDEX IF NOT EXISTS auto_files_status_idx ON auto_files (status)`,
+  // The file date changes when the media server edits a video (default track, removed dubs): it is not the arrival.
+  `ALTER TABLE auto_files ADD COLUMN IF NOT EXISTS first_seen_ms BIGINT`,
+  `ALTER TABLE auto_files ADD COLUMN IF NOT EXISTS priority BOOLEAN NOT NULL DEFAULT false`,
+  `UPDATE auto_files SET first_seen_ms = mtime_ms WHERE first_seen_ms IS NULL`,
   `CREATE TABLE IF NOT EXISTS auto_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
 ];
 
@@ -49,6 +57,8 @@ const toRow = (r: any): FileRow => ({
   untranslated: r.untranslated,
   translatedAt: r.translated_at ? new Date(r.translated_at).toISOString() : null,
   updatedAt: new Date(r.updated_at).toISOString(),
+  firstSeenMs: Number(r.first_seen_ms ?? r.mtime_ms),
+  priority: !!r.priority,
 });
 
 export class StateRepository {
@@ -79,14 +89,16 @@ export class StateRepository {
     for (let i = 0; i < rows.length; i += 500) {
       const b = rows.slice(i, i + 500);
       await this.db.query(
-        `INSERT INTO auto_files (video, status, source, detail, size, mtime_ms, probe, attempts, cues, untranslated, translated_at, updated_at)
-         SELECT v, s, src, d, sz, mt, p::jsonb, a, c, u, ta::timestamptz, now()
-         FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::bigint[], $6::bigint[], $7::text[], $8::int[], $9::int[], $10::int[], $11::text[])
-           AS t(v, s, src, d, sz, mt, p, a, c, u, ta)
+        `INSERT INTO auto_files (video, status, source, detail, size, mtime_ms, probe, attempts, cues, untranslated, translated_at, updated_at, first_seen_ms, priority)
+         SELECT v, s, src, d, sz, mt, p::jsonb, a, c, u, ta::timestamptz, now(), fs, pr
+         FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::bigint[], $6::bigint[], $7::text[], $8::int[], $9::int[], $10::int[], $11::text[], $12::bigint[], $13::boolean[])
+           AS t(v, s, src, d, sz, mt, p, a, c, u, ta, fs, pr)
          ON CONFLICT (video) DO UPDATE SET
            status = excluded.status, source = excluded.source, detail = excluded.detail, size = excluded.size,
            mtime_ms = excluded.mtime_ms, probe = excluded.probe, attempts = excluded.attempts, cues = excluded.cues,
-           untranslated = excluded.untranslated, translated_at = excluded.translated_at, updated_at = now()`,
+           untranslated = excluded.untranslated, translated_at = excluded.translated_at, updated_at = now(),
+           first_seen_ms = LEAST(auto_files.first_seen_ms, excluded.first_seen_ms),
+           priority = auto_files.priority OR excluded.priority`,
         [
           b.map(r => r.video),
           b.map(r => r.status),
@@ -99,6 +111,8 @@ export class StateRepository {
           b.map(r => r.cues),
           b.map(r => r.untranslated),
           b.map(r => r.translatedAt),
+          b.map(r => Math.round(r.firstSeenMs)),
+          b.map(r => r.priority),
         ]
       );
     }
@@ -125,7 +139,7 @@ export class StateRepository {
     const orderBy = {
       recent: 'updated_at DESC',
       translated: 'translated_at DESC NULLS LAST',
-      queue: 'mtime_ms DESC',
+      queue: 'priority DESC, first_seen_ms DESC',
     }[order];
     const rows = await this.db.query(
       `SELECT * FROM auto_files ${status ? 'WHERE status = $1' : ''} ORDER BY ${orderBy} LIMIT ${Math.max(1, Math.min(limit, 100000))}`,
@@ -134,9 +148,28 @@ export class StateRepository {
     return rows.map(toRow);
   }
 
-  async translatedSince(sinceIso: string): Promise<number> {
+  /**
+   * Videos ready to translate: queued, or waiting with the wait already over (the full scan, which moves them to the
+   * queue, runs only every few hours). `priorityOnly` = just the ones that came through the webhook.
+   */
+  async due(waitMs: number, limit: number, priorityOnly: boolean): Promise<FileRow[]> {
     await this.init();
-    const [r] = await this.db.query(`SELECT COUNT(*)::int AS n FROM auto_files WHERE translated_at >= $1::timestamptz`, [sinceIso]);
+    const rows = await this.db.query(
+      `SELECT * FROM auto_files
+       WHERE (status = 'pending' OR (status = 'waiting' AND first_seen_ms <= $1)) ${priorityOnly ? 'AND priority' : ''}
+       ORDER BY priority DESC, first_seen_ms DESC LIMIT ${Math.max(1, limit)}`,
+      [Date.now() - waitMs]
+    );
+    return rows.map(toRow);
+  }
+
+  /** Translations written since `sinceIso`; `priority` false = only the backlog (what the daily limit counts). */
+  async translatedSince(sinceIso: string, priority?: boolean): Promise<number> {
+    await this.init();
+    const [r] = await this.db.query(
+      `SELECT COUNT(*)::int AS n FROM auto_files WHERE translated_at >= $1::timestamptz${priority === undefined ? '' : ` AND priority = ${priority}`}`,
+      [sinceIso]
+    );
     return r?.n ?? 0;
   }
 

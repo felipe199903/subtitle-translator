@@ -3,9 +3,17 @@ import http from 'http';
 import path from 'path';
 import { FileStatus, STATUS_LABELS } from './classify';
 import { config } from './config';
+import { log } from './log';
 import { FileRow, StateRepository } from './state';
 import { ACTION_LABELS, GROUP_LABELS, MEASURE_LABELS, Measure, SYNC_FILES, SyncGroup, actionsOf, byGroup, loadSync, summary } from './sync';
+import { webhookPaths } from './webhook';
 import { AutoTranslator } from './worker';
+
+const readBody = (req: http.IncomingMessage) =>
+  new Promise<string>((resolve, reject) => {
+    const parts: Buffer[] = [];
+    req.on('data', c => parts.push(c)).on('end', () => resolve(Buffer.concat(parts).toString('utf8'))).on('error', reject);
+  });
 
 const esc = (s: unknown) =>
   String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -58,7 +66,7 @@ async function page(state: StateRepository, worker: AutoTranslator, status: stri
 
   return shell(
     'traducoes',
-    `<p class="muted">Hoje: ${today}/${config.dailyLimit} · ${config.filesPerCycle} arquivo(s) a cada ${config.cycleMinutes} min · espera ${config.waitDays} dias após o vídeo chegar ·
+    `<p class="muted">Hoje: ${today} (acervo ${await worker.translatedToday(false)}/${config.dailyLimit}) · acervo: ${config.filesPerCycle} arquivo(s) a cada ${config.cycleMinutes} min · novos: assim que acabam as ${config.waitHours} h de espera ·
 última varredura: ${worker.lastScanAt ? worker.lastScanAt.toLocaleString('sv-SE').slice(0, 16) : 'em andamento'}${
       cooldown ? ` · <b>em pausa até ${cooldown.toLocaleString('sv-SE').slice(0, 16)}</b>` : ''
     }</p>
@@ -202,6 +210,17 @@ export function startServer(state: StateRepository, worker: AutoTranslator) {
             await state.upsertMany([{ ...row, status: 'pending', attempts: 0, detail: 'nova tentativa pedida' }]);
             res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({ video, status: 'pending' }));
           }
+        } else if (url.pathname === '/api/import' && req.method === 'POST') {
+          // Sonarr/Radarr webhook (Connect → Webhook: On Import, On Upgrade, On Rename).
+          const { imported, renamed } = webhookPaths(JSON.parse((await readBody(req)) || '{}'));
+          for (const [from, to] of renamed) await worker.renamed(from, to);
+          const result = await worker.ingest(imported, true);
+          if (imported.length) log('Webhook:', result.map(r => `${r.status} ${r.video}`).join(' · '));
+          res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({ imported: result, renamed: renamed.length }));
+        } else if (url.pathname === '/api/rescan' && req.method === 'POST') {
+          // One video, right now (Bazarr post-processing after a download: a human PT-BR replaces ours at once).
+          const result = await worker.ingest([url.searchParams.get('video') || '']);
+          res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(result));
         } else if (url.pathname === '/api/files.csv') {
           const rows = await state.list(status, 100000, 'recent');
           res
