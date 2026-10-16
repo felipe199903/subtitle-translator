@@ -217,6 +217,11 @@ export function startServer(state: StateRepository, worker: AutoTranslator) {
           const result = await worker.ingest(imported, true);
           if (imported.length) log('Webhook:', result.map(r => `${r.status} ${r.video}`).join(' · '));
           res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({ imported: result, renamed: renamed.length }));
+        } else if (url.pathname === '/api/resume' && req.method === 'POST') {
+          // Lifts a pause (e.g. one left by a Google outage that is already over).
+          await worker.resume();
+          log('Pausa encerrada pela API.');
+          res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end('{"ok":true}');
         } else if (url.pathname === '/api/rescan' && req.method === 'POST') {
           // One video, right now (Bazarr post-processing after a download: a human PT-BR replaces ours at once).
           const result = await worker.ingest([url.searchParams.get('video') || '']);

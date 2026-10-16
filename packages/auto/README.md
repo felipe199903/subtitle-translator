@@ -37,6 +37,7 @@ A espera conta da **primeira vez que o vídeo foi visto**, não da data do arqui
 - **`POST /api/import`**: Sonarr e Radarr → *Settings → Connect → Webhook* (eventos *On Import*, *On Upgrade* e *On Rename*), URL `http://<servidor>:8787/api/import`.
   - O vídeo importado é avaliado na hora e entra com **prioridade**. O Bazarr já busca a legenda na importação; se em `WAIT_HOURS` não chegar PT-BR, a tradução sai no minuto seguinte, à frente do acervo e **fora do `DAILY_LIMIT`**. O ritmo do motor e a pausa por recusa continuam valendo.
   - Num *Rename*, a tradução automática é renomeada junto (senão seria traduzida de novo).
+- **`POST /api/resume`**: encerra uma pausa na hora (ex.: o Google já voltou). Sobrecarga do Gemini (503) pausa só 15 min, dobrando até 2 h; as outras recusas seguem `COOLDOWN_HOURS`.
 - **`POST /api/rescan?video=<caminho>`**: reavalia um vídeo na hora. Pós-processamento do Bazarr (*Settings → Subtitles → Post-Processing*), para a legenda humana substituir a automática assim que é baixada:
   `curl -s -X POST -G --data-urlencode "video={{episode}}" http://<servidor>:8787/api/rescan`
 

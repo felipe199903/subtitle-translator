@@ -220,6 +220,12 @@ export class AutoTranslator {
     };
   }
 
+  /** Lifts a pause right away (POST /api/resume). */
+  async resume(): Promise<void> {
+    await this.state.setMeta('cooldown_until', '');
+    await this.state.setMeta('cooldown_streak', '0');
+  }
+
   async cooldownUntil(): Promise<Date | null> {
     const v = await this.state.getMeta('cooldown_until');
     const d = v ? new Date(v) : null;
@@ -462,7 +468,13 @@ export class AutoTranslator {
         },
       ]);
       let until = this.geminiQuotaBack();
-      if (!until) {
+      const overloaded = /\(503\)|indispon/i.test(this.engine.gemini?.lastError ?? '');
+      if (!until && overloaded) {
+        // Google overloaded ("high demand", 503): it passes in minutes, not hours. 15 min, doubling up to 2 h.
+        const streak = Number((await this.state.getMeta('cooldown_streak')) ?? 0) + 1;
+        until = new Date(Date.now() + Math.min(15 * 2 ** (streak - 1), 120) * 60_000);
+        await this.state.setMeta('cooldown_streak', String(streak));
+      } else if (!until) {
         // Consecutive refusals double the pause (6 h → 12 h → 24 h); a success resets it.
         const streak = Number((await this.state.getMeta('cooldown_streak')) ?? 0) + 1;
         until = new Date(Date.now() + Math.min(config.cooldownHours * 2 ** (streak - 1), 24) * 3_600_000);
